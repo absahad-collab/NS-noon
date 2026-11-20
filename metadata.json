@@ -1,0 +1,6 @@
+{
+  "name": "NS Shift A",
+  "description": "NS Shift A Operations Dashboard and CC PDA Portal (12:00 AM - 9:00 AM Jeddah / JEDMS02)",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

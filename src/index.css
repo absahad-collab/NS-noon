@@ -1,0 +1,63 @@
+@import "tailwindcss";
+
+@keyframes redPulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(225, 29, 72, .55); }
+  50% { box-shadow: 0 0 0 7px rgba(225, 29, 72, 0); }
+}
+.pulse-red { animation: redPulse 1.8s infinite ease-in-out; }
+
+@keyframes pulseAlert {
+  0%, 100% { opacity: 1; }
+  50% { opacity: .88; }
+}
+.animate-pulse-alert { animation: pulseAlert 1.5s infinite ease-in-out; }
+
+@keyframes emergency {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(225, 29, 72, .75); }
+  50% { box-shadow: 0 0 0 10px rgba(225, 29, 72, 0); }
+}
+.animate-emergency { animation: emergency 1.6s infinite ease-in-out; }
+
+@keyframes boxFlash {
+  0% { box-shadow: 0 0 0 0 rgba(3, 105, 161, 0); }
+  18% { box-shadow: 0 0 0 6px rgba(3, 105, 161, .45); }
+  100% { box-shadow: 0 0 0 0 rgba(3, 105, 161, 0); }
+}
+.box-flash { animation: boxFlash 1.6s ease-out 1; }
+
+@keyframes riseIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: none; }
+}
+.rise-in { animation: riseIn .28s ease-out both; }
+
+body.modal-open { overflow: hidden; }
+html, body {
+  scroll-behavior: smooth;
+  -webkit-text-size-adjust: 100%;
+  overflow-x: hidden;
+  background: #0b1530;
+}
+.box-scroll { scrollbar-width: thin; scrollbar-color: #475569 transparent; }
+
+button, [data-act], select, input, textarea, label {
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+.pda-root button, .pda-root [data-act] {
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+}
+
+body.tv { zoom: 1.25; }
+
+@media print {
+  body * { visibility: hidden !important; }
+  .print-area, .print-area * { visibility: visible !important; }
+  .print-area { position: absolute; left: 0; top: 0; width: 100%; padding: 16px; background: #fff !important; color: #000 !important; }
+}
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  .box-flash, .rise-in { animation: none; }
+}

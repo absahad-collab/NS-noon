@@ -1,0 +1,2057 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Shift A - CC PDA Portal</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    @keyframes pulseAlert { 0%,100% { opacity: 1; } 50% { opacity: .88; } }
+    .animate-pulse-alert { animation: pulseAlert 1.5s infinite ease-in-out; }
+    @keyframes emergency { 0%,100% { box-shadow: 0 0 0 0 rgba(225,29,72,.75); } 50% { box-shadow: 0 0 0 10px rgba(225,29,72,0); } }
+    .animate-emergency { animation: emergency 1.6s infinite ease-in-out; }
+    body.modal-open { overflow: hidden; }
+    select, input, textarea { font-size: 16px; }
+    html { -webkit-text-size-adjust: 100%; }
+    button, [data-act], select, input, textarea, label { touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
+    button, [data-act] { user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; transition: transform .08s ease, background-color .15s ease, opacity .15s ease; }
+    button:active, [data-act]:active { transform: scale(.97); opacity: .9; }
+    button:disabled { opacity: .5; }
+    #prodModal, #helpLocationModal, #sendHelperModal, #passwordModal, #bcModal, #ccSheet { overscroll-behavior: contain; -webkit-overflow-scrolling: touch; }
+    #prodModal *, #helpLocationModal * { scroll-behavior: auto; }
+  </style>
+</head>
+<body class="bg-slate-900 text-slate-100 font-sans antialiased min-h-screen pb-16">
+
+  <!-- HEADER -->
+  <header class="bg-slate-950 border-b border-slate-800 p-3 sticky top-0 z-40 flex items-center justify-between">
+    <div class="flex items-center gap-2 min-w-0">
+      <div class="p-1.5 bg-sky-700 rounded-lg text-white font-black text-xs">PDA</div>
+      <div class="min-w-0">
+        <h1 class="text-sm font-black tracking-tight text-white leading-tight truncate">Warehouse PDA</h1>
+        <div class="flex items-center gap-1.5 text-[10px] text-slate-400">
+          <span id="shiftStatusDot" class="w-1.5 h-1.5 rounded-full bg-slate-500"></span>
+          <span id="shiftStatusLabel">Shift A &bull; Connecting...</span>
+        </div>
+      </div>
+    </div>
+    <div class="flex items-center gap-1.5 shrink-0">
+      <button id="enableSoundBtn" data-act="enableAlerts" class="px-2 py-1 bg-amber-500 text-slate-950 text-[10px] font-black rounded-lg">&#128276; Tap to enable</button>
+      <button id="switchUserBtn" data-act="logout" class="hidden px-2.5 py-1 bg-slate-800 rounded-lg text-slate-300 text-xs font-bold">Switch ID</button>
+    </div>
+  </header>
+
+  <!-- TABS -->
+  <div id="navTabs" class="hidden bg-slate-950/95 border-b border-slate-800 p-1.5 flex gap-1.5 sticky top-[53px] z-30">
+    <button id="tabMyTaskBtn" data-act="tab" data-tab="mytask" class="flex-1 py-1.5 rounded-lg text-xs font-black bg-sky-700 text-white" data-i18n="tab_my">My Task &amp; Schedule</button>
+    <button id="tabAllTasksBtn" data-act="tab" data-tab="alltasks" class="flex-1 py-1.5 rounded-lg text-xs font-black text-slate-400 bg-slate-900 border border-slate-800" data-i18n="tab_all">All Tasks</button>
+  </div>
+
+  <div id="netBanner" class="hidden bg-amber-600 text-slate-950 text-[11px] font-black text-center py-1.5 px-3 sticky top-[53px] z-[35]"></div>
+  <div class="max-w-md mx-auto px-3.5 pt-2 flex items-center justify-end gap-1.5">
+    <button id="langBtn" data-act="cycleLang" class="px-2.5 py-1 bg-slate-800 border border-slate-700 rounded-lg text-[10px] font-black text-slate-200">&#127760; English</button>
+    <button id="fontBtn" data-act="cycleFont" class="px-2.5 py-1 bg-slate-800 border border-slate-700 rounded-lg text-[10px] font-black text-slate-200">A</button>
+  </div>
+
+  <div id="toastBox" class="hidden fixed top-3 left-4 right-4 z-[60] bg-slate-700 text-white py-2 px-3 rounded-xl shadow-2xl text-center text-xs font-bold"></div>
+
+  <div class="p-3.5 max-w-md mx-auto space-y-3.5">
+
+    <!-- LOGIN -->
+    <div id="loginScreen" class="bg-slate-800/90 border border-slate-700 rounded-2xl p-4 shadow-xl text-center mt-4">
+      <h2 class="text-base font-black text-white" data-i18n="login_title">Select Your Name</h2>
+      <p class="text-xs text-slate-400 mt-0.5 mb-3" data-i18n="login_sub">Choose your profile to log in to this terminal.</p>
+      <input type="text" id="workerSearchInput" placeholder="Search name or ID..." class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-white outline-none focus:border-sky-500 mb-3">
+      <div id="workerListContainer" class="max-h-72 overflow-y-auto divide-y divide-slate-700/60 border border-slate-700 rounded-xl bg-slate-900/60 text-left">
+        <div class="p-4 text-center text-slate-500 text-xs">Loading...</div>
+      </div>
+    </div>
+
+    <!-- MY TASK -->
+    <div id="myTaskSection" class="hidden space-y-3.5">
+
+      <div id="mySummonAlarmBanner" class="hidden bg-gradient-to-r from-rose-700 to-red-800 text-white p-4 rounded-3xl shadow-2xl animate-emergency border-2 border-rose-300">
+        <div class="flex items-start justify-between gap-2">
+          <div class="min-w-0">
+            <div class="text-[10px] font-black uppercase text-rose-200">&#128276; Supervisor calling you</div>
+            <div id="summonTlSenderName" class="text-sm font-black text-white mt-1"></div>
+            <p id="summonMessageText" class="text-xs font-bold text-amber-200 mt-0.5"></p>
+          </div>
+          <button data-act="ackSummon" class="px-3.5 py-2 bg-emerald-600 text-white font-black rounded-2xl text-xs shadow-lg active:scale-95 shrink-0">&#10004; Acknowledge</button>
+        </div>
+      </div>
+
+      <div id="announcementBannerBox" class="space-y-2"></div>
+      <div id="bcMsgsBox" class="hidden bg-slate-800/95 border border-sky-700/50 rounded-3xl p-3.5 shadow-lg space-y-2"></div>
+
+      <div id="moveAlertBanner" class="hidden bg-sky-900 border-2 border-sky-400 text-white p-3.5 rounded-2xl shadow-xl">
+        <div class="flex items-center justify-between gap-2">
+          <div>
+            <div class="text-[10px] font-black uppercase text-sky-200">Line update</div>
+            <div id="moveAlertText" class="text-xs font-bold mt-0.5"></div>
+          </div>
+          <button data-act="dismissMove" class="px-3 py-1.5 bg-sky-600 text-white font-black rounded-xl text-xs shrink-0">OK</button>
+        </div>
+      </div>
+
+      <div id="offDayBanner" class="hidden p-3.5 rounded-2xl border text-center">
+        <div id="offDayTitle" class="text-sm font-black"></div>
+        <div id="offDaySub" class="text-[11px] mt-0.5 opacity-80"></div>
+      </div>
+
+      <div id="closedBanner" class="hidden p-3 rounded-2xl border border-amber-700/70 bg-amber-950/50 text-amber-200 text-center text-xs font-bold"></div>
+
+      <!-- FL help alerts -->
+      <div id="flHelpAlertSection" class="hidden bg-rose-950/90 border-2 border-rose-500 rounded-3xl p-4 shadow-xl space-y-2.5">
+        <div class="flex items-center justify-between">
+          <h3 class="text-xs font-black text-rose-200 uppercase">&#128680; Floor Help Calls</h3>
+          <span id="flHelpBadge" class="bg-rose-600 text-white text-[10px] font-black px-2 py-0.5 rounded-full">0</span>
+        </div>
+        <div id="flHelpListContainer" class="space-y-2"></div>
+      </div>
+
+      <!-- recent help activity (who accepted / cleared) for FL + TL -->
+      <div id="helpActivityBox" class="hidden bg-slate-800/95 border border-emerald-700/60 rounded-3xl p-3.5 shadow-lg">
+        <h3 class="text-[11px] font-black text-emerald-300 uppercase mb-2">&#128203; Help activity</h3>
+        <div id="helpActivityList" class="space-y-1.5"></div>
+      </div>
+
+      <!-- TL deck -->
+      <div id="tlCommandDeckSection" class="hidden space-y-3.5">
+        <div class="bg-gradient-to-r from-slate-800 to-indigo-950 border border-indigo-500/60 rounded-3xl p-4 shadow-xl">
+          <span class="text-[9px] font-black uppercase tracking-wider text-indigo-300 bg-indigo-950/90 px-2 py-0.5 rounded-md border border-indigo-700">Team Lead command</span>
+          <h2 id="tlProfileName" class="text-base font-black text-white mt-1"></h2>
+          <span id="tlProfileId" class="text-[10px] text-indigo-300/80 font-mono"></span>
+        </div>
+
+        <div id="tlTabs" class="sticky top-0 z-30 grid grid-cols-4 gap-1.5 bg-slate-950 py-1.5 text-[11px] font-black">
+          <button data-act="tlTab" data-tab="floor" id="tlTabFloor" class="py-2 rounded-xl border">&#127981; Floor</button>
+          <button data-act="tlTab" data-tab="help" id="tlTabHelp" class="py-2 rounded-xl border relative">&#128680; Help <span id="tlTabHelpN" class="hidden absolute -top-1.5 -right-1 bg-rose-600 text-white text-[9px] rounded-full px-1.5"></span></button>
+          <button data-act="tlTab" data-tab="bc" id="tlTabBc" class="py-2 rounded-xl border">&#128226; Message</button>
+          <button data-act="tlTab" data-tab="team" id="tlTabTeam" class="py-2 rounded-xl border">&#128101; Team</button>
+        </div>
+
+        <div id="tlBreachBanner" class="hidden bg-rose-900 border-2 border-rose-400 rounded-2xl p-3.5 animate-pulse-alert">
+          <div class="text-[10px] font-black uppercase text-rose-200">Minimum staff breached</div>
+          <div id="tlBreachList" class="text-xs font-bold text-white mt-1 space-y-0.5"></div>
+        </div>
+
+        <div id="tlPaneHelp" class="space-y-3.5">
+        <div class="bg-slate-800/95 border border-slate-700 rounded-3xl p-4 shadow-lg">
+          <div class="flex items-center justify-between mb-3 pb-2 border-b border-slate-700">
+            <h3 class="text-xs font-black text-white flex items-center gap-1.5"><span>&#128680; Live Help Calls</span>
+              <span id="tlHelpCallCountBadge" class="bg-rose-600 text-white text-[10px] px-1.5 rounded-full font-black">0</span></h3>
+          </div>
+          <div id="tlHelpCallsContainer" class="space-y-2"></div>
+        </div>
+
+        <div class="bg-slate-800/95 border border-slate-700 rounded-3xl p-4 shadow-lg space-y-2.5">
+          <h3 class="text-xs font-black text-white">&#128231; Non Sort counts</h3>
+          <div id="tlNsContainer" class="space-y-2"></div>
+        </div>
+
+        </div>
+        <div id="tlPaneFloor" class="space-y-3.5">
+          <div id="tlFloorBox" class="space-y-3"></div>
+        <div class="bg-slate-800/95 border border-slate-700 rounded-3xl p-4 shadow-lg space-y-2.5">
+          <div>
+            <h3 class="text-xs font-black text-white">&#128276; Summon Colleague (Ring Bell)</h3>
+            <p class="text-[10px] text-slate-400">Buzzer and urgent popup on the colleague's terminal</p>
+          </div>
+          <div>
+            <label class="text-[10px] font-bold text-slate-400 block mb-1">Colleague:</label>
+            <select id="tlSummonTargetSelect" class="w-full bg-slate-900 border border-slate-700 rounded-xl p-2.5 text-white outline-none focus:border-sky-500 font-bold"></select>
+          </div>
+          <div>
+            <label class="text-[10px] font-bold text-slate-400 block mb-1">Reason:</label>
+            <select id="tlSummonReasonSelect" class="w-full bg-slate-900 border border-slate-700 rounded-xl p-2.5 text-white outline-none focus:border-sky-500">
+              <option value="Report to TL desk immediately">Report to TL desk immediately</option>
+              <option value="Check your line right now">Check your line right now</option>
+              <option value="Break ended - return to line">Break ended - return to line</option>
+              <option value="Call your Floor Lead now">Call your Floor Lead now</option>
+            </select>
+          </div>
+          <button id="tlRingBellSubmitBtn" data-act="ring" class="w-full py-2.5 bg-amber-500 text-slate-950 font-black rounded-xl text-xs shadow-lg active:scale-95">&#128276; Ring Bell &amp; Call Colleague</button>
+        </div>
+
+        <div class="bg-slate-800/95 border border-slate-700 rounded-3xl p-4 shadow-lg">
+          <h3 class="text-xs font-black text-white mb-0.5">Deploy Line Helper</h3>
+          <p class="text-[10px] text-slate-400 mb-3">Reassign an active colleague to another line temporarily</p>
+          <div class="grid grid-cols-2 gap-2">
+            <div>
+              <label class="text-[10px] font-bold text-slate-400 block mb-1">Colleague:</label>
+              <select id="tlDirectHelperWorkerSelect" class="w-full bg-slate-900 border border-slate-700 rounded-xl p-2 text-white outline-none focus:border-sky-500 font-bold truncate"></select>
+            </div>
+            <div>
+              <label class="text-[10px] font-bold text-slate-400 block mb-1">Target line:</label>
+              <select id="tlDirectHelperTaskSelect" class="w-full bg-slate-900 border border-slate-700 rounded-xl p-2 text-white outline-none focus:border-sky-500 font-bold"></select>
+            </div>
+          </div>
+          <button data-act="deployHelper" class="w-full mt-2.5 py-2.5 bg-sky-700 text-white font-black rounded-xl text-xs shadow-md active:scale-95">Deploy as Helper</button>
+        </div>
+
+        </div>
+        <div id="tlPaneBc" class="space-y-3.5">
+          <div class="bg-slate-800/95 border border-slate-700 rounded-3xl p-4 shadow-lg space-y-2.5">
+            <h3 class="text-xs font-black text-white">&#128226; New message to the group</h3>
+            <input id="bcTitle" maxlength="60" placeholder="Title (optional)" class="w-full bg-slate-900 border border-slate-700 rounded-xl p-2.5 text-white outline-none focus:border-sky-500 font-bold">
+            <div>
+              <textarea id="bcMsg" rows="4" maxlength="800" placeholder="Write the important message..." class="w-full bg-slate-900 border border-slate-700 rounded-xl p-2.5 text-white outline-none focus:border-sky-500"></textarea>
+              <div id="bcCounter" class="text-right text-[10px] text-slate-500">0 / 800</div>
+            </div>
+            <div class="flex items-center gap-2">
+              <label class="flex-1 text-center py-2.5 bg-slate-900 border border-dashed border-slate-500 rounded-xl text-xs font-black text-slate-200 cursor-pointer active:scale-95">&#128247; Add photo<input id="bcFile" type="file" accept="image/*" class="hidden"></label>
+              <button id="bcPhotoClear" data-act="bcPhotoClear" class="hidden px-3 py-2.5 bg-slate-800 text-rose-300 rounded-xl text-xs font-black">&#10005; Remove</button>
+            </div>
+            <div id="bcPreviewWrap" class="hidden relative"><img id="bcPreview" alt="" class="rounded-xl max-h-52 mx-auto border border-slate-700"><div id="bcUpState" class="absolute inset-x-0 bottom-1 text-center text-[10px] font-black"></div></div>
+            <div class="text-[10px] font-bold uppercase text-slate-400">Send to</div>
+            <div id="bcTargetChips" class="flex flex-wrap gap-1.5"></div>
+            <div id="bcPeopleBox" class="hidden space-y-1.5">
+              <input id="bcPeopleSearch" placeholder="Search name..." class="w-full bg-slate-900 border border-slate-700 rounded-xl p-2 text-xs text-white outline-none focus:border-sky-500">
+              <div id="bcPeopleList" class="max-h-44 overflow-y-auto grid grid-cols-2 gap-1"></div>
+            </div>
+            <div class="grid grid-cols-2 gap-2">
+              <div id="bcPrioBox" class="grid grid-cols-2 gap-1 text-[11px] font-black"></div>
+              <select id="bcExpiry" class="bg-slate-900 border border-slate-700 rounded-xl p-2 text-xs text-white outline-none font-bold">
+                <option value="shift">Until shift ends</option><option value="24h">24 hours</option><option value="3d">3 days</option><option value="manual">Until I remove it</option>
+              </select>
+            </div>
+            <button id="bcSendBtn" data-act="bcSend" class="w-full py-3 bg-sky-600 text-white font-black rounded-xl text-sm shadow-lg active:scale-95">&#128226; Send to everyone selected</button>
+          </div>
+          <div id="bcActiveBox" class="space-y-2"></div>
+          <div id="bcHistBox"></div>
+        </div>
+        <div id="tlPaneTeam" class="space-y-3.5">
+          <button data-act="openProd" class="w-full py-2.5 bg-slate-800 border border-slate-600 text-white font-black rounded-xl text-xs active:scale-95">&#128200; Team productivity</button>
+        <div class="hidden bg-slate-800/95 border border-slate-700 rounded-3xl p-4 shadow-lg space-y-2.5">
+          <h3 class="text-xs font-black text-white">&#128226; Announcement</h3>
+          <div>
+            <label class="text-[10px] font-bold text-slate-400 block mb-1">Send to:</label>
+            <select id="annTargetSelect" class="w-full bg-slate-900 border border-slate-700 rounded-xl p-2.5 text-white outline-none focus:border-sky-500 font-bold"></select>
+          </div>
+          <div>
+            <textarea id="annMessageInput" rows="3" maxlength="240" placeholder="Message (max 240 characters)" class="w-full bg-slate-900 border border-slate-700 rounded-xl p-2.5 text-white outline-none focus:border-sky-500"></textarea>
+            <div id="annCounter" class="text-right text-[10px] text-slate-500">0 / 240</div>
+          </div>
+          <button id="annSendBtn" data-act="sendAnn" class="w-full py-2.5 bg-sky-700 text-white font-black rounded-xl text-xs active:scale-95">Send announcement</button>
+          <div id="annActiveList" class="space-y-1.5"></div>
+        </div>
+
+        <div class="bg-slate-800/95 border border-slate-700 rounded-3xl p-4 shadow-lg space-y-2.5">
+          <h3 class="text-xs font-black text-white">&#128203; Attendance</h3>
+          <div class="grid grid-cols-2 gap-2">
+            <div class="col-span-2">
+              <label class="text-[10px] font-bold text-slate-400 block mb-1">Colleague:</label>
+              <select id="attEmpSelect" class="w-full bg-slate-900 border border-slate-700 rounded-xl p-2.5 text-white outline-none focus:border-sky-500 font-bold"></select>
+            </div>
+            <div>
+              <label class="text-[10px] font-bold text-slate-400 block mb-1">Action:</label>
+              <select id="attKindSelect" class="w-full bg-slate-900 border border-slate-700 rounded-xl p-2.5 text-white outline-none focus:border-sky-500 font-bold">
+                <option value="Present">Present</option>
+                <option value="AB">Absent</option>
+                <option value="LV">Leave</option>
+                <option value="late">Late</option>
+                <option value="early">Early out</option>
+              </select>
+            </div>
+            <div>
+              <label class="text-[10px] font-bold text-slate-400 block mb-1">Time:</label>
+              <input id="attTimeInput" type="time" class="w-full bg-slate-900 border border-slate-700 rounded-xl p-2 text-white outline-none focus:border-sky-500">
+            </div>
+          </div>
+          <div class="grid grid-cols-2 gap-2">
+            <button data-act="applyAtt" class="py-2.5 bg-sky-700 text-white font-black rounded-xl text-xs active:scale-95">Apply</button>
+            <button data-act="markAllPresent" class="py-2.5 bg-emerald-700 text-white font-black rounded-xl text-xs active:scale-95">&#10004; Mark all Present</button>
+          </div>
+          <div id="attSummary" class="grid grid-cols-3 gap-1.5 text-center"></div>
+        </div>
+        </div>
+      </div>
+
+      <!-- REGULAR CC -->
+      <div id="regularCcViewSection" class="space-y-3.5">
+        <div class="bg-slate-800/90 border border-slate-700 rounded-2xl p-4 shadow-lg">
+          <div class="flex items-center justify-between pb-3 border-b border-slate-700">
+            <div class="min-w-0">
+              <span class="text-[10px] font-bold text-sky-400 uppercase">Logged in</span>
+              <h2 id="profileName" class="text-sm font-black text-white truncate"></h2>
+              <span id="profileId" class="text-[10px] text-slate-400 font-mono"></span>
+            </div>
+            <div class="text-right shrink-0">
+              <span class="text-[10px] text-slate-400 block">Today's plan</span>
+              <span id="profilePlanBadge" class="text-xs font-black text-amber-300 bg-amber-950 px-2 py-0.5 rounded-lg"></span>
+            </div>
+          </div>
+          <div class="pt-3">
+            <div class="p-3 bg-slate-900/90 border border-slate-700 rounded-xl flex items-center gap-2.5">
+              <span id="activeStationBadge" class="text-xs font-black px-2.5 py-1 rounded-lg text-white bg-sky-700"></span>
+              <div>
+                <div id="activeStationName" class="text-xs font-black text-white"></div>
+                <div id="activeStationRole" class="text-[10px] text-slate-400">Primary</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div id="breakSectionCard" class="bg-slate-800/90 border border-slate-700 rounded-2xl p-4 shadow-lg">
+          <div class="flex items-center justify-between mb-3">
+            <h3 class="text-xs font-black text-white"><span data-i18n="brk_title">Shift Break</span> <span id="breakDurLabel" class="text-slate-400 font-bold"></span></h3>
+            <span id="breakStatusBadge" class="text-[10px] font-bold px-2 py-0.5 rounded bg-slate-700 text-slate-300">PENDING</span>
+          </div>
+          <div id="breakStartBox">
+            <button id="startBreakBtn" data-act="breakStart" class="w-full py-3 bg-amber-500 text-slate-950 font-black rounded-xl text-xs active:scale-95 disabled:opacity-40" data-i18n="brk_start">Start my break now</button>
+          </div>
+          <div id="breakActiveBox" class="hidden space-y-3 p-3.5 rounded-2xl border border-amber-500/80 bg-amber-950/40">
+            <div class="flex items-center justify-between">
+              <span id="breakTimerLabel" class="text-xs font-bold text-amber-300">Break remaining</span>
+              <span id="breakTimerCountdown" class="text-lg font-black text-amber-300 font-mono">--:--</span>
+            </div>
+            <div id="breakOvertimeWarn" class="hidden text-xs font-black text-rose-300 bg-rose-950/80 border border-rose-600 rounded-lg p-2 text-center"></div>
+            <button id="endBreakBtn" data-act="breakEnd" class="w-full py-2.5 bg-emerald-600 text-white font-black rounded-xl text-xs active:scale-95" data-i18n="brk_end">End break &amp; return to station</button>
+          </div>
+          <div id="breakDoneBox" class="hidden p-3 bg-emerald-950 text-emerald-300 rounded-xl text-center text-xs font-bold" data-i18n="brk_done">&#10004; Break completed for this shift.</div>
+        </div>
+
+        <div id="myHelpBanner" class="hidden p-3.5 rounded-2xl border-2 border-amber-400 bg-amber-950/60">
+          <div class="flex items-center justify-between gap-2">
+            <div>
+              <div class="text-[10px] font-black uppercase text-amber-300" data-i18n="my_help">Your help request</div>
+              <div id="myHelpText" class="text-xs font-bold text-white mt-0.5"></div>
+            </div>
+            <div class="flex flex-col gap-1.5 shrink-0">
+              <label id="myHelpPhotoBtn" class="px-2.5 py-1.5 bg-slate-800 text-sky-200 font-bold rounded-lg text-[10px] text-center cursor-pointer active:scale-95">&#128247; Add photo<input id="myHelpFile" type="file" accept="image/*" class="hidden"></label>
+              <button data-act="cancelMyHelp" class="px-2.5 py-1.5 bg-slate-800 text-slate-200 font-bold rounded-lg text-[10px]">Cancel</button>
+            </div>
+          </div>
+        </div>
+
+        <div id="helpSectionCard" class="bg-slate-800/90 border border-rose-900 rounded-2xl p-3.5 shadow-lg flex items-center justify-between">
+          <div>
+            <h3 class="text-xs font-black text-rose-300" data-i18n="help_title">&#128680; Need floor help?</h3>
+            <p class="text-[10px] text-slate-400" data-i18n="help_sub">Alert the Floor Lead or Supervisor</p>
+          </div>
+          <button id="requestHelpBtn" data-act="openHelp" class="px-3.5 py-2 bg-rose-700 text-white font-black rounded-xl text-xs active:scale-95 disabled:opacity-40" data-i18n="help_btn">Request Help</button>
+        </div>
+
+        <div id="nsSectionCard" class="bg-slate-800/90 border border-slate-700 rounded-2xl p-4 shadow-lg space-y-3">
+          <div class="flex items-center justify-between gap-2">
+            <h3 class="text-xs font-black text-white">&#128230; Non Sort Putaway</h3>
+            <span id="myNsPersonalScore" class="text-[10px] font-black px-2 py-0.5 rounded-lg bg-emerald-950 text-emerald-300 border border-emerald-800">My today: 0 AWBs &bull; 0 Qty</span>
+          </div>
+          <div class="flex gap-2">
+            <input type="text" id="nsAwbInput" placeholder="Scan or type AWB..." class="flex-1 min-w-0 bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-white outline-none focus:border-sky-500 disabled:opacity-40">
+            <button id="nsSearchBtn" data-act="nsRequest" class="px-3.5 py-2 bg-indigo-700 text-white font-bold rounded-xl text-xs active:scale-95 disabled:opacity-40">Search</button>
+          </div>
+          <div id="myActiveNsRequestsBox" class="space-y-2"></div>
+        </div>
+      </div>
+
+      <div class="bg-slate-800/90 border border-violet-700/50 rounded-2xl p-3.5 shadow-lg">
+        <div class="flex items-center justify-between mb-2">
+          <h3 class="text-xs font-black text-white" data-i18n="dev_title">&#128223; My PDA</h3>
+          <button data-act="refreshDevices" class="px-2 py-0.5 bg-slate-900 border border-slate-600 rounded-lg text-[10px] font-black text-slate-300">&#8635;</button>
+        </div>
+        <div id="devBox" class="text-xs text-slate-400">...</div>
+      </div>
+
+      <div class="bg-slate-800/90 border border-emerald-700/50 rounded-2xl p-3.5 shadow-lg">
+        <h3 class="text-xs font-black text-white mb-2" data-i18n="sc_title">&#128202; My score today</h3>
+        <div id="myScoreBox" class="grid grid-cols-4 gap-1.5 text-center"></div>
+      </div>
+
+      <div class="bg-slate-800/90 border border-sky-700/50 rounded-2xl p-3.5 shadow-lg">
+        <div class="flex items-center justify-between mb-2">
+          <h3 class="text-xs font-black text-white" data-i18n="y_title">&#128200; Yesterday's productivity</h3>
+          <span id="yDateLabel" class="text-[10px] font-bold text-slate-400"></span>
+        </div>
+        <div id="yBox" class="text-xs text-slate-400">...</div>
+        <button data-act="openProd" class="mt-2.5 w-full py-2 bg-sky-700 hover:bg-sky-600 text-white font-black rounded-xl text-xs active:scale-95" data-i18n="prod_open">&#128202; Team &amp; other days &rsaquo;</button>
+      </div>
+
+      <div class="bg-slate-800/90 border border-slate-700 rounded-2xl p-3.5 shadow-lg">
+        <h3 class="text-xs font-black text-white mb-2">&#128197; My 7-day schedule</h3>
+        <div id="myWeeklyScheduleGrid" class="grid grid-cols-7 gap-1 text-center"></div>
+      </div>
+    </div>
+
+    <!-- ALL TASKS -->
+    <div id="allTasksSection" class="hidden space-y-3">
+      <div class="bg-slate-800/90 border border-slate-700 rounded-2xl p-3 shadow-lg">
+        <div class="flex items-center justify-between mb-2">
+          <span class="text-[10px] font-black text-slate-400 uppercase tracking-wider">Day</span>
+          <span id="rosterDayBadge" class="text-[10px] font-black px-2 py-0.5 rounded bg-sky-700 text-white">Today</span>
+        </div>
+        <div id="rosterDayButtons" class="grid grid-cols-7 gap-1 text-center"></div>
+      </div>
+      <div class="bg-slate-800/90 border border-indigo-500/40 rounded-2xl p-3.5 shadow-lg">
+        <div class="flex items-center justify-between mb-2.5 pb-2 border-b border-slate-700">
+          <h3 class="text-xs font-black text-white">&#128202; Non Sort leaderboard (today)</h3>
+          <span class="text-[9px] font-bold px-2 py-0.5 rounded bg-emerald-950 text-emerald-300 border border-emerald-800">Sheet sync</span>
+        </div>
+        <div id="pdaNonSortLeaderboardContainer" class="space-y-1.5"><div class="text-xs text-slate-400 italic py-1">Loading...</div></div>
+      </div>
+      <div id="allTasksListContainer" class="space-y-2.5"></div>
+    </div>
+  </div>
+
+  <!-- PASSWORD MODAL -->
+  <div id="passwordModal" class="hidden fixed inset-0 z-50 bg-slate-950/85 flex items-center justify-center p-4">
+    <div class="bg-slate-900 border-2 border-sky-600 rounded-3xl max-w-sm w-full p-5 shadow-2xl text-center">
+      <h3 class="text-sm font-black text-white">Security verification</h3>
+      <div id="passwordModalTitle" class="text-xs font-bold text-amber-300 mt-0.5"></div>
+      <input type="password" id="pdaPasswordInput" autocomplete="off" placeholder="Enter your password..." class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2.5 text-center font-bold text-white mt-3 mb-2 outline-none focus:border-sky-500">
+      <p id="passwordErrorMsg" class="hidden text-rose-400 text-[11px] font-bold mb-2"></p>
+      <div class="flex gap-2">
+        <button data-act="closePassword" class="flex-1 py-2 bg-slate-800 text-slate-300 font-bold rounded-xl text-xs">Cancel</button>
+        <button id="pdaPasswordSubmitBtn" data-act="submitPassword" class="flex-1 py-2 bg-sky-700 text-white font-black rounded-xl text-xs">Authenticate</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- PRODUCTIVITY SCREEN -->
+  <div id="prodModal" class="hidden fixed inset-0 z-50 bg-slate-950 overflow-y-auto">
+    <div class="max-w-md mx-auto p-3.5">
+      <div class="flex items-center justify-between mb-2.5">
+        <h3 class="text-sm font-black text-white" data-i18n="prod_title">&#128200; Productivity</h3>
+        <button data-act="closeProd" class="px-3 py-1 bg-slate-800 border border-slate-600 rounded-lg text-xs font-black text-slate-200">&times; Close</button>
+      </div>
+      <div class="flex items-center gap-1.5 mb-2.5">
+        <button data-act="prodPrev" class="px-2.5 py-1.5 bg-slate-800 border border-slate-600 rounded-lg text-xs font-black">&#9664;</button>
+        <input id="prodDate" type="date" class="flex-1 min-w-0 bg-slate-800 border border-slate-600 rounded-lg px-2 py-1.5 text-xs font-bold text-white" />
+        <button data-act="prodNext" class="px-2.5 py-1.5 bg-slate-800 border border-slate-600 rounded-lg text-xs font-black">&#9654;</button>
+      </div>
+      <div class="grid grid-cols-4 gap-1.5 mb-2.5 text-[11px] font-black">
+        <button data-act="prodTab" data-tab="me" id="prodTabMe" class="py-1.5 rounded-lg border">Me</button>
+        <button data-act="prodTab" data-tab="top" id="prodTabTop" class="py-1.5 rounded-lg border">Top 5</button>
+        <button data-act="prodTab" data-tab="all" id="prodTabAll" class="py-1.5 rounded-lg border">Everyone</button>
+        <button data-act="prodTab" data-tab="board" id="prodTabBoard" class="py-1.5 rounded-lg border">&#127942; Best</button>
+      </div>
+      <div id="prodSortRow" class="hidden flex items-center gap-1.5 mb-2.5 text-[10px] font-bold text-slate-400">Rank by
+        <button data-act="prodSort" data-sort="qty" id="prodSortQty" class="px-2 py-1 rounded-lg border text-[10px] font-black">Quantity</button>
+        <button data-act="prodSort" data-sort="tph" id="prodSortTph" class="px-2 py-1 rounded-lg border text-[10px] font-black">TPH</button>
+      </div>
+      <div id="prodPeriodRow" class="hidden flex items-center gap-1.5 mb-2.5 text-[10px] font-black">
+        <button data-act="prodPeriod" data-sort="7" id="prodPer7" class="px-2.5 py-1 rounded-lg border">Last 7 days</button>
+        <button data-act="prodPeriod" data-sort="30" id="prodPer30" class="px-2.5 py-1 rounded-lg border">Last 30 days</button>
+      </div>
+      <input id="prodSearch" class="hidden w-full bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-xs text-white mb-2.5" placeholder="Search name or ID..." />
+      <div id="prodBody" class="space-y-2 pb-10 text-xs text-slate-300"></div>
+    </div>
+  </div>
+
+  <!-- FULL-SCREEN PHOTO -->
+  <div id="photoView" class="hidden fixed inset-0 z-[80] bg-black/95 flex items-center justify-center p-2" data-act="photoClose"><img id="photoViewImg" alt="" class="max-w-full max-h-full rounded-lg"><div class="absolute top-3 right-4 text-white text-2xl font-black">&#10005;</div></div>
+
+  <!-- BROADCAST POPUP (must be read) -->
+  <div id="bcModal" class="hidden fixed inset-0 z-[70] bg-slate-950/95 overflow-y-auto p-3.5">
+    <div id="bcModalBody" class="max-w-md mx-auto my-2"></div>
+  </div>
+
+  <!-- TL: person actions -->
+  <div id="ccSheet" class="hidden fixed inset-0 z-[65] bg-slate-950/80 flex items-end justify-center" data-act="ccClose">
+    <div id="ccSheetBody" class="bg-slate-900 border-t-2 border-sky-600 rounded-t-3xl w-full max-w-md p-4 pb-6 max-h-[88vh] overflow-y-auto" data-act="noop"></div>
+  </div>
+
+  <!-- HELP LOCATION MODAL -->
+  <div id="helpLocationModal" class="hidden fixed inset-0 z-50 bg-slate-950/80 flex items-center justify-center p-4">
+    <div class="bg-slate-900 border-2 border-rose-600 rounded-3xl max-w-sm w-full p-4 shadow-2xl text-center max-h-[92vh] overflow-y-auto">
+      <h3 class="text-sm font-black text-white mb-2" data-i18n="help_reason">What is the problem? (optional)</h3>
+      <div id="helpReasonChips" class="flex flex-wrap justify-center gap-1.5 mb-3"></div>
+      <div class="mb-3">
+        <div class="flex items-center justify-center gap-2">
+          <label class="px-3 py-2 bg-slate-800 border border-dashed border-slate-500 rounded-xl text-xs font-black text-slate-200 cursor-pointer active:scale-95">&#128247; Add photo (optional)<input id="helpFile" type="file" accept="image/*" class="hidden"></label>
+          <button id="helpPhotoClear" data-act="helpPhotoClear" class="hidden px-2.5 py-2 bg-slate-800 text-rose-300 rounded-xl text-xs font-black">&#10005;</button>
+        </div>
+        <div id="helpPhotoWrap" class="hidden mt-2 relative"><img id="helpPhotoPrev" alt="" class="mx-auto max-h-28 rounded-xl border border-slate-700"><div id="helpPhotoState" class="mt-1 text-[10px] font-black"></div></div>
+      </div>
+      <h3 class="text-sm font-black text-white mb-3" data-i18n="help_pick">Tap the help location</h3>
+      <div class="text-[10px] font-bold uppercase text-slate-500 mb-1.5" id="aisleLbl">Aisle</div>
+      <div class="grid grid-cols-5 gap-1.5 mb-2.5 text-sm font-black">
+        <button data-act="sendHelp" data-loc="Aisle 1" class="py-2.5 bg-slate-800 rounded-xl border border-slate-700">1</button>
+        <button data-act="sendHelp" data-loc="Aisle 2" class="py-2.5 bg-slate-800 rounded-xl border border-slate-700">2</button>
+        <button data-act="sendHelp" data-loc="Aisle 3" class="py-2.5 bg-slate-800 rounded-xl border border-slate-700">3</button>
+        <button data-act="sendHelp" data-loc="Aisle 4" class="py-2.5 bg-slate-800 rounded-xl border border-slate-700">4</button>
+        <button data-act="sendHelp" data-loc="Aisle 5" class="py-2.5 bg-slate-800 rounded-xl border border-slate-700">5</button>
+        <button data-act="sendHelp" data-loc="Aisle 6" class="py-2.5 bg-slate-800 rounded-xl border border-slate-700">6</button>
+        <button data-act="sendHelp" data-loc="Aisle 7" class="py-2.5 bg-slate-800 rounded-xl border border-slate-700">7</button>
+        <button data-act="sendHelp" data-loc="Aisle 8" class="py-2.5 bg-slate-800 rounded-xl border border-slate-700">8</button>
+        <button data-act="sendHelp" data-loc="Aisle 9" class="py-2.5 bg-slate-800 rounded-xl border border-slate-700">9</button>
+        <button data-act="sendHelp" data-loc="Aisle 10" class="py-2.5 bg-slate-800 rounded-xl border border-slate-700">10</button>
+        <button data-act="sendHelp" data-loc="Aisle 11" class="py-2.5 bg-slate-800 rounded-xl border border-slate-700">11</button>
+        <button data-act="sendHelp" data-loc="Aisle 12" class="py-2.5 bg-slate-800 rounded-xl border border-slate-700">12</button>
+        <button data-act="sendHelp" data-loc="Aisle 13" class="py-2.5 bg-slate-800 rounded-xl border border-slate-700">13</button>
+        <button data-act="sendHelp" data-loc="Aisle 14" class="py-2.5 bg-slate-800 rounded-xl border border-slate-700">14</button>
+      </div>
+      <div class="grid grid-cols-2 gap-2 mb-4 text-xs font-black">
+        <button data-act="sendHelp" data-loc="Pallet Area" class="py-2.5 bg-indigo-900 rounded-xl">Pallet Area</button>
+        <button data-act="sendHelp" data-loc="Grocery Area" class="py-2.5 bg-emerald-900 rounded-xl">Grocery Area</button>
+      </div>
+      <button data-act="closeHelp" class="w-full py-2 bg-slate-800 text-slate-400 font-bold rounded-xl text-xs" data-i18n="cancel">Cancel</button>
+    </div>
+  </div>
+
+  <!-- SEND HELPER MODAL -->
+  <div id="sendHelperModal" class="hidden fixed inset-0 z-50 bg-slate-950/85 flex items-center justify-center p-4">
+    <div class="bg-slate-900 border-2 border-sky-600 rounded-3xl max-w-sm w-full p-4 shadow-2xl">
+      <h3 class="text-sm font-black text-white">Send a helper</h3>
+      <p id="sendHelperSub" class="text-[11px] text-slate-400 mb-2"></p>
+      <div id="sendHelperList" class="max-h-72 overflow-y-auto divide-y divide-slate-800 border border-slate-800 rounded-xl"></div>
+      <button data-act="closeSendHelper" class="w-full mt-3 py-2 bg-slate-800 text-slate-300 font-bold rounded-xl text-xs">Close</button>
+    </div>
+  </div>
+
+  <script>
+    var DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+    var S = {
+      token: '', empId: '', state: null, lastNow: 0, skew: 0, tab: 'mytask', rosterDay: '',
+      closedPolls: 0, notFoundPolls: 0, sawActive: false, pending: {}, pendingWorkerId: '',
+      seenHelp: {}, helpPrimed: false, lastBreachKey: '', lastAnnBuzz: {}, lastSummon: '', lastReadyNs: {},
+      wake: null, polling: false, sendHelperFor: '', loginList: [], audioCtx: null
+    };
+    try { S.token = localStorage.getItem('pda_token') || ''; S.empId = localStorage.getItem('pda_emp_id') || ''; } catch (e) {}
+    if (!S.token) S.empId = '';
+
+    // ---------- language / font size ----------
+    var STR = {
+      tab_my: 'My Task &amp; Schedule', tab_all: 'All Tasks', login_title: 'Select Your Name', login_sub: 'Choose your profile to log in to this terminal.',
+      brk_title: 'Shift Break', brk_start: 'Start my break now', brk_end: 'End break &amp; return to station', brk_done: '&#10004; Break completed for this shift.',
+      brk_left: 'Break remaining', brk_over: 'Overtime', brk_2min: 'Break ends in 2 minutes - get ready to return.',
+      my_help: 'Your help request', help_title: '&#128680; Need floor help?', help_sub: 'Alert the Floor Lead or Supervisor', help_btn: 'Request Help',
+      help_reason: 'What is the problem? (optional)', help_pick: 'Tap the help location', cancel: 'Cancel',
+      accept: '&#129309; Accept', clear: '&#10004; Clear', send_helper: 'Send helper', nearest_you: '&#11088; Nearest to you', nearest_other: 'Nearest FL: ',
+      same_aisle: 'Same aisle', aisles_away: ' aisle(s) away', waiting: 'Waiting ',
+      prod_title: '&#128200; Productivity', prod_open: '&#128202; Team &amp; other days &rsaquo;',
+      dev_title: '&#128223; My PDA', dev_none: 'No PDA is issued to your ID right now.', dev_since: 'since', dev_second: '2nd PDA', dev_swap: 'swap', dev_err: 'Could not load PDA details.',
+      sc_title: '&#128202; My score today', sc_awb: 'AWBs', sc_qty: 'Qty', sc_brk: 'Break', sc_help: 'Help calls',
+      y_title: '&#128200; Yesterday\'s productivity', y_none: 'No productivity found for your ID yesterday.', y_total: 'Total qty', y_err: 'Could not load yesterday\'s data.',
+      net_off: 'No network - your actions are saved and will be sent when you are back online', net_q: 'waiting to send', net_weak: 'Weak network - retrying...',
+      queued: 'No network. Saved - will send automatically.', sent_q: 'Saved actions sent',
+      'r_Heavy item': 'Heavy item', 'r_Damaged': 'Damaged', 'r_Wrong location': 'Wrong location', 'r_Other': 'Other'
+    };
+    var I18N = {
+      hi: {
+        tab_my: 'मेरा काम और शेड्यूल', tab_all: 'सभी टास्क', login_title: 'अपना नाम चुनें', login_sub: 'इस टर्मिनल पर लॉगिन के लिए अपनी प्रोफ़ाइल चुनें।',
+        brk_title: 'शिफ्ट ब्रेक', brk_start: 'मेरा ब्रेक अभी शुरू करें', brk_end: 'ब्रेक खत्म करें और स्टेशन पर लौटें', brk_done: '&#10004; इस शिफ्ट का ब्रेक पूरा हुआ।',
+        brk_left: 'ब्रेक बाकी', brk_over: 'ओवरटाइम', brk_2min: 'ब्रेक 2 मिनट में खत्म होगा - लौटने की तैयारी करें।',
+        my_help: 'आपकी हेल्प रिक्वेस्ट', help_title: '&#128680; फ्लोर पर मदद चाहिए?', help_sub: 'फ्लोर लीड या सुपरवाइज़र को अलर्ट करें', help_btn: 'मदद माँगें',
+        help_reason: 'समस्या क्या है? (वैकल्पिक)', help_pick: 'हेल्प की जगह चुनें', cancel: 'रद्द करें',
+        accept: '&#129309; एक्सेप्ट', clear: '&#10004; क्लियर', send_helper: 'हेल्पर भेजें', nearest_you: '&#11088; आपके सबसे नज़दीक', nearest_other: 'सबसे नज़दीकी FL: ',
+        same_aisle: 'उसी एज़ल में', aisles_away: ' एज़ल दूर', waiting: 'इंतज़ार ',
+        prod_title: '&#128200; प्रोडक्टिविटी', prod_open: '&#128202; टीम और दूसरे दिन &rsaquo;',
+        dev_title: '&#128223; मेरा PDA', dev_none: 'अभी आपकी ID पर कोई PDA इश्यू नहीं है।', dev_since: 'से', dev_second: '2nd PDA', dev_swap: 'स्वैप', dev_err: 'PDA की जानकारी लोड नहीं हो सकी।',
+        sc_title: '&#128202; आज का मेरा स्कोर', sc_awb: 'AWB', sc_qty: 'मात्रा', sc_brk: 'ब्रेक', sc_help: 'हेल्प कॉल',
+        y_title: '&#128200; कल की प्रोडक्टिविटी', y_none: 'कल आपकी ID का कोई डेटा नहीं मिला।', y_total: 'कुल मात्रा', y_err: 'कल का डेटा लोड नहीं हो सका।',
+        net_off: 'नेटवर्क नहीं है - आपके एक्शन सेव हैं, नेट आते ही भेज दिए जाएँगे', net_q: 'भेजने के लिए बाकी', net_weak: 'कमज़ोर नेटवर्क - दोबारा कोशिश जारी...',
+        queued: 'नेटवर्क नहीं। सेव हो गया - अपने आप भेजा जाएगा।', sent_q: 'सेव किए एक्शन भेज दिए गए',
+        'r_Heavy item': 'भारी सामान', 'r_Damaged': 'खराब/डैमेज', 'r_Wrong location': 'गलत लोकेशन', 'r_Other': 'अन्य'
+      },
+      bn: {
+        tab_my: 'আমার কাজ ও সূচি', tab_all: 'সব টাস্ক', login_title: 'আপনার নাম বাছুন', login_sub: 'এই টার্মিনালে লগইন করতে আপনার প্রোফাইল বাছুন।',
+        brk_title: 'শিফট ব্রেক', brk_start: 'এখন আমার ব্রেক শুরু করুন', brk_end: 'ব্রেক শেষ করে স্টেশনে ফিরুন', brk_done: '&#10004; এই শিফটের ব্রেক সম্পূর্ণ।',
+        brk_left: 'ব্রেক বাকি', brk_over: 'ওভারটাইম', brk_2min: 'ব্রেক ২ মিনিটে শেষ - ফেরার জন্য তৈরি হন।',
+        my_help: 'আপনার সাহায্যের অনুরোধ', help_title: '&#128680; ফ্লোরে সাহায্য দরকার?', help_sub: 'ফ্লোর লিড বা সুপারভাইজারকে জানান', help_btn: 'সাহায্য চান',
+        help_reason: 'সমস্যা কী? (ঐচ্ছিক)', help_pick: 'সাহায্যের জায়গা বাছুন', cancel: 'বাতিল',
+        accept: '&#129309; গ্রহণ', clear: '&#10004; ক্লিয়ার', send_helper: 'সহকারী পাঠান', nearest_you: '&#11088; আপনার সবচেয়ে কাছে', nearest_other: 'সবচেয়ে কাছের FL: ',
+        same_aisle: 'একই আইলে', aisles_away: ' আইল দূরে', waiting: 'অপেক্ষা ',
+        prod_title: '&#128200; প্রোডাক্টিভিটি', prod_open: '&#128202; টিম ও অন্য দিন &rsaquo;',
+        dev_title: '&#128223; আমার PDA', dev_none: 'এই মুহূর্তে আপনার ID-তে কোনো PDA ইস্যু নেই।', dev_since: 'থেকে', dev_second: '২য় PDA', dev_swap: 'সোয়াপ', dev_err: 'PDA-র তথ্য লোড করা যায়নি।',
+        sc_title: '&#128202; আজকের আমার স্কোর', sc_awb: 'AWB', sc_qty: 'পরিমাণ', sc_brk: 'ব্রেক', sc_help: 'হেল্প কল',
+        y_title: '&#128200; গতকালের প্রোডাক্টিভিটি', y_none: 'গতকাল আপনার ID-র কোনো ডেটা পাওয়া যায়নি।', y_total: 'মোট পরিমাণ', y_err: 'গতকালের ডেটা লোড করা যায়নি।',
+        net_off: 'নেটওয়ার্ক নেই - আপনার কাজ সেভ আছে, নেট এলেই পাঠানো হবে', net_q: 'পাঠানোর অপেক্ষায়', net_weak: 'দুর্বল নেটওয়ার্ক - আবার চেষ্টা চলছে...',
+        queued: 'নেটওয়ার্ক নেই। সেভ হয়েছে - নিজে থেকেই পাঠানো হবে।', sent_q: 'সেভ করা কাজ পাঠানো হয়েছে',
+        'r_Heavy item': 'ভারী মাল', 'r_Damaged': 'নষ্ট/ড্যামেজ', 'r_Wrong location': 'ভুল লোকেশন', 'r_Other': 'অন্যান্য'
+      }
+    };
+    var LANGS = [['en', 'English'], ['hi', 'हिन्दी'], ['bn', 'বাংলা']];
+    S.lang = (function () { var l = ''; try { l = localStorage.getItem('pda_lang') || ''; } catch (e) {} return I18N[l] ? l : 'en'; })();
+    S.fs = (function () { var f = 0; try { f = parseInt(localStorage.getItem('pda_fs') || '0', 10); } catch (e) {} return f >= 0 && f <= 3 ? f : 0; })();
+    S.queue = (function () { try { return JSON.parse(localStorage.getItem('pda_queue') || '[]') || []; } catch (e) { return []; } })();
+    S.netFails = 0; S.flushing = false; S.breakWarnFor = 0; S.seenEsc = {}; S.yData = null; S.yFor = ''; S.yAt = 0; S.helpReason = '';
+    function T(k) { return (S.lang !== 'en' && I18N[S.lang] && I18N[S.lang][k]) || STR[k] || k; }
+    function applyPrefs() {
+      Array.prototype.forEach.call(document.querySelectorAll('[data-i18n]'), function (el) { el.innerHTML = T(el.getAttribute('data-i18n')); });
+      var lb = document.getElementById('langBtn'); if (lb) lb.innerHTML = '&#127760; ' + (LANGS.filter(function (x) { return x[0] === S.lang; })[0] || LANGS[0])[1];
+      var fb = document.getElementById('fontBtn'); if (fb) fb.innerHTML = ['A', 'A+', 'A++', 'A+++'][S.fs];
+      document.body.style.zoom = [1, 1.15, 1.3, 1.5][S.fs];
+      document.documentElement.lang = S.lang;
+      if (typeof trScan === 'function') trScan();
+    }
+    // ---------- full-screen translator (every visible text, in any language) ----------
+    // [english (as shown on screen), hindi, bangla]. Anything not listed (names, IDs, numbers, line codes) stays as is.
+    var TR_LIST = [
+      ['Warehouse PDA', 'वेयरहाउस PDA', 'ওয়্যারহাউস PDA'], ['Switch ID', 'ID बदलें', 'ID বদলান'],
+      ['🔔 Tap to enable', '🔔 चालू करने के लिए टैप करें', '🔔 চালু করতে ট্যাপ করুন'], ['🔊 Alerts ready', '🔊 अलर्ट तैयार', '🔊 অ্যালার্ট প্রস্তুত'], ['Alerts enabled', 'अलर्ट चालू हो गए', 'অ্যালার্ট চালু হয়েছে'],
+      ['Connecting...', 'कनेक्ट हो रहा है...', 'সংযোগ হচ্ছে...'], ['Please log in', 'कृपया लॉगिन करें', 'অনুগ্রহ করে লগইন করুন'], ['Active (12 AM - 9 AM)', 'चालू (12 AM - 9 AM)', 'চালু (12 AM - 9 AM)'], ['Closed (view only)', 'बंद (सिर्फ देखें)', 'বন্ধ (শুধু দেখুন)'],
+      ['Loading...', 'लोड हो रहा है...', 'লোড হচ্ছে...'], ['Search name or ID...', 'नाम या ID खोजें...', 'নাম বা ID খুঁজুন...'], ['Search', 'खोजें', 'খুঁজুন'],
+      ['🔔 Supervisor calling you', '🔔 सुपरवाइज़र आपको बुला रहे हैं', '🔔 সুপারভাইজার আপনাকে ডাকছেন'], ['✔ Acknowledge', '✔ स्वीकार करें', '✔ নিশ্চিত করুন'], ['Acknowledged', 'स्वीकार किया', 'নিশ্চিত হয়েছে'],
+      ['Line update', 'लाइन अपडेट', 'লাইন আপডেট'], ['OK', 'ठीक है', 'ঠিক আছে'], ['🚨 Floor Help Calls', '🚨 फ्लोर हेल्प कॉल', '🚨 ফ্লোর হেল্প কল'], ['🚨 Live Help Calls', '🚨 लाइव हेल्प कॉल', '🚨 লাইভ হেল্প কল'],
+      ['📋 Help activity', '📋 हेल्प गतिविधि', '📋 হেল্প কার্যকলাপ'], ['Team Lead command', 'टीम लीड कमांड', 'টিম লিড কমান্ড'], ['Minimum staff breached', 'न्यूनतम स्टाफ से कम', 'ন্যূনতম স্টাফের চেয়ে কম'],
+      ['📧 Non Sort counts', '📧 नॉन सॉर्ट गिनती', '📧 নন সর্ট গণনা'], ['🔔 Summon Colleague (Ring Bell)', '🔔 साथी को बुलाएँ (घंटी)', '🔔 সহকর্মীকে ডাকুন (বেল)'],
+      ["Buzzer and urgent popup on the colleague's terminal", 'साथी के टर्मिनल पर बज़र और ज़रूरी पॉपअप', 'সহকর্মীর টার্মিনালে বাজার ও জরুরি পপআপ'],
+      ['Colleague:', 'साथी:', 'সহকর্মী:'], ['Reason:', 'कारण:', 'কারণ:'], ['Report to TL desk immediately', 'तुरंत TL डेस्क पर आएँ', 'এখনই TL ডেস্কে আসুন'], ['Check your line right now', 'अभी अपनी लाइन देखें', 'এখনই আপনার লাইন দেখুন'],
+      ['Break ended - return to line', 'ब्रेक खत्म - लाइन पर लौटें', 'ব্রেক শেষ - লাইনে ফিরুন'], ['Call your Floor Lead now', 'अभी अपने फ्लोर लीड को कॉल करें', 'এখনই আপনার ফ্লোর লিডকে কল করুন'],
+      ['🔔 Ring Bell & Call Colleague', '🔔 घंटी बजाएँ और साथी को बुलाएँ', '🔔 বেল বাজান ও সহকর্মীকে ডাকুন'], ['Deploy Line Helper', 'लाइन हेल्पर लगाएँ', 'লাইন হেল্পার নিয়োগ করুন'],
+      ['Reassign an active colleague to another line temporarily', 'किसी सक्रिय साथी को अस्थायी रूप से दूसरी लाइन पर लगाएँ', 'একজন সক্রিয় সহকর্মীকে সাময়িকভাবে অন্য লাইনে দিন'],
+      ['Target line:', 'लक्ष्य लाइन:', 'লক্ষ্য লাইন:'], ['Deploy as Helper', 'हेल्पर के रूप में लगाएँ', 'হেল্পার হিসেবে নিয়োগ'], ['📢 Announcement', '📢 घोषणा', '📢 ঘোষণা'], ['Announcement', 'घोषणा', 'ঘোষণা'],
+      ['Send to:', 'किसे भेजें:', 'কাকে পাঠাবেন:'], ['Send announcement', 'घोषणा भेजें', 'ঘোষণা পাঠান'], ['Announcement sent', 'घोषणा भेज दी गई', 'ঘোষণা পাঠানো হয়েছে'], ['📋 Attendance', '📋 उपस्थिति', '📋 উপস্থিতি'],
+      ['Action:', 'कार्रवाई:', 'কাজ:'], ['Present', 'उपस्थित', 'উপস্থিত'], ['Absent', 'अनुपस्थित', 'অনুপস্থিত'], ['Leave', 'छुट्टी', 'ছুটি'], ['Late', 'देर से', 'দেরিতে'], ['Early out', 'जल्दी गए', 'আগে বেরিয়েছে'],
+      ['Time:', 'समय:', 'সময়:'], ['Apply', 'लागू करें', 'প্রয়োগ করুন'], ['✔ Mark all Present', '✔ सभी को उपस्थित करें', '✔ সবাইকে উপস্থিত করুন'], ['Everyone', 'सभी', 'সবাই'], ['Week off', 'साप्ताहिक छुट्टी', 'সাপ্তাহিক ছুটি'],
+      ['Logged in', 'लॉगिन', 'লগইন'], ["Today's plan", 'आज की योजना', 'আজকের পরিকল্পনা'], ['Primary', 'मुख्य', 'প্রাথমিক'], ['Shift Break', 'शिफ्ट ब्रेक', 'শিফট ব্রেক'], ['PENDING', 'बाकी', 'বাকি'], ['COMPLETED', 'पूरा', 'সম্পূর্ণ'],
+      ['ON BREAK', 'ब्रेक पर', 'ব্রেকে'], ['OVERTIME', 'ओवरटाइम', 'ওভারটাইম'], ['Start my break now', 'मेरा ब्रेक अभी शुरू करें', 'এখন আমার ব্রেক শুরু করুন'], ['Break remaining', 'ब्रेक बाकी', 'ব্রেক বাকি'], ['Overtime', 'ओवरटाइम', 'ওভারটাইম'],
+      ['End break & return to station', 'ब्रेक खत्म करें और स्टेशन पर लौटें', 'ব্রেক শেষ করে স্টেশনে ফিরুন'], ['✔ Break completed for this shift.', '✔ इस शिफ्ट का ब्रेक पूरा हुआ।', '✔ এই শিফটের ব্রেক সম্পূর্ণ।'],
+      ['Break started', 'ब्रेक शुरू हुआ', 'ব্রেক শুরু হয়েছে'], ['Add photo (optional)', 'फोटो जोड़ें (वैकल्पिक)', 'ছবি যোগ করুন (ঐচ্ছিক)'], ['Add photo', 'फोटो जोड़ें', 'ছবি যোগ করুন'], ['Uploading photo...', 'फोटो अपलोड हो रही है...', 'ছবি আপলোড হচ্ছে...'], ['Photo attached', 'फोटो जुड़ गई', 'ছবি যুক্ত হয়েছে'], ['Upload failed - remove and try again', 'अपलोड फेल - हटाकर फिर कोशिश करें', 'আপলোড ব্যর্থ - সরিয়ে আবার চেষ্টা করুন'], ['Photo is still uploading...', 'फोटो अभी अपलोड हो रही है...', 'ছবি এখনও আপলোড হচ্ছে...'], ['Photo added to your call', 'आपकी कॉल में फोटो जुड़ गई', 'আপনার কলে ছবি যোগ হয়েছে'], ['Tap to enlarge', 'बड़ा करने के लिए टैप करें', 'বড় করতে ট্যাপ করুন'], ['Photo upload failed.', 'फोटो अपलोड फेल हुई।', 'ছবি আপলোড ব্যর্থ।'],
+ ['Break completed on time', 'ब्रेक समय पर पूरा हुआ', 'ব্রেক সময়মতো শেষ হয়েছে'], ['Your help request', 'आपकी हेल्प रिक्वेस्ट', 'আপনার সাহায্যের অনুরোধ'], ['Cancel', 'रद्द करें', 'বাতিল'],
+      ['🚨 Need floor help?', '🚨 फ्लोर पर मदद चाहिए?', '🚨 ফ্লোরে সাহায্য দরকার?'], ['Alert the Floor Lead or Supervisor', 'फ्लोर लीड या सुपरवाइज़र को अलर्ट करें', 'ফ্লোর লিড বা সুপারভাইজারকে জানান'],
+      ['Request Help', 'मदद माँगें', 'সাহায্য চান'], ['📦 Non Sort Putaway', '📦 नॉन सॉर्ट पुटअवे', '📦 নন সর্ট পুটঅ্যাওয়ে'], ['Scan or type AWB...', 'AWB स्कैन करें या लिखें...', 'AWB স্ক্যান করুন বা লিখুন...'],
+      ['Qty', 'मात्रा', 'পরিমাণ'], ['AWBs', 'AWB', 'AWB'], ['📟 My PDA', '📟 मेरा PDA', '📟 আমার PDA'], ['📊 My score today', '📊 आज का मेरा स्कोर', '📊 আজকের আমার স্কোর'],
+      ["📈 Yesterday's productivity", '📈 कल की प्रोडक्टिविटी', '📈 গতকালের প্রোডাক্টিভিটি'], ['📊 Team & other days ›', '📊 टीम और दूसरे दिन ›', '📊 টিম ও অন্য দিন ›'], ['📈 Productivity', '📈 प्रोडक्टिविटी', '📈 প্রোডাক্টিভিটি'],
+      ['📅 My 7-day schedule', '📅 मेरा 7 दिन का शेड्यूल', '📅 আমার ৭ দিনের সূচি'], ['Day', 'दिन', 'দিন'], ['Today', 'आज', 'আজ'], ['📊 Non Sort leaderboard (today)', '📊 नॉन सॉर्ट लीडरबोर्ड (आज)', '📊 নন সর্ট লিডারবোর্ড (আজ)'],
+      ['Sheet sync', 'शीट सिंक', 'শিট সিঙ্ক'], ['Security verification', 'सुरक्षा सत्यापन', 'নিরাপত্তা যাচাই'], ['Authenticate', 'सत्यापित करें', 'যাচাই করুন'], ['Verifying...', 'जाँच हो रही है...', 'যাচাই হচ্ছে...'],
+      ['Enter your password...', 'अपना पासवर्ड डालें...', 'আপনার পাসওয়ার্ড দিন...'], ['Incorrect password.', 'गलत पासवर्ड।', 'ভুল পাসওয়ার্ড।'], ['Select Your Name', 'अपना नाम चुनें', 'আপনার নাম বাছুন'],
+      ['Choose your profile to log in to this terminal.', 'इस टर्मिनल पर लॉगिन के लिए अपनी प्रोफ़ाइल चुनें।', 'এই টার্মিনালে লগইন করতে আপনার প্রোফাইল বাছুন।'], ['My Task & Schedule', 'मेरा काम और शेड्यूल', 'আমার কাজ ও সূচি'], ['All Tasks', 'सभी टास्क', 'সব টাস্ক'],
+      ['Me', 'मैं', 'আমি'], ['Top 5', 'टॉप 5', 'টপ ৫'], ['Rank by', 'क्रम', 'ক্রম'], ['Quantity', 'मात्रा', 'পরিমাণ'], ['× Close', '× बंद करें', '× বন্ধ'], ['Close', 'बंद करें', 'বন্ধ করুন'],
+      ['Total units', 'कुल इकाइयाँ', 'মোট ইউনিট'], ['Hour by hour', 'घंटे दर घंटे', 'ঘণ্টা ধরে ধরে'], ['active hours', 'सक्रिय घंटे', 'সক্রিয় ঘণ্টা'], ['Total qty', 'कुल मात्रा', 'মোট পরিমাণ'], ['Network problem.', 'नेटवर्क समस्या।', 'নেটওয়ার্ক সমস্যা।'],
+      ['What is the problem? (optional)', 'समस्या क्या है? (वैकल्पिक)', 'সমস্যা কী? (ঐচ্ছিক)'], ['Tap the help location', 'हेल्प की जगह चुनें', 'সাহায্যের জায়গা বাছুন'], ['Aisle 1', 'एज़ल 1', 'আইল ১'], ['Aisle 2', 'एज़ल 2', 'আইল ২'], ['Aisle 3', 'एज़ल 3', 'আইল ৩'], ['Aisle 4', 'एज़ल 4', 'আইল ৪'],
+      ['Pallet Area', 'पैलेट एरिया', 'প্যালেট এরিয়া'], ['Grocery Area', 'ग्रॉसरी एरिया', 'গ্রোসারি এরিয়া'], ['Send a helper', 'हेल्पर भेजें', 'হেল্পার পাঠান'], ['Heavy item', 'भारी सामान', 'ভারী মাল'], ['Damaged', 'खराब/डैमेज', 'নষ্ট/ড্যামেজ'], ['Wrong location', 'गलत लोकेशन', 'ভুল লোকেশন'], ['Other', 'अन्य', 'অন্যান্য'],
+      ['Help alert sent', 'हेल्प अलर्ट भेज दिया', 'হেল্প অ্যালার্ট পাঠানো হয়েছে'], ['Help request cancelled', 'हेल्प रिक्वेस्ट रद्द', 'সাহায্যের অনুরোধ বাতিল'], ['Help call accepted', 'हेल्प कॉल स्वीकार की', 'হেল্প কল গ্রহণ করা হয়েছে'], ['Help call cleared', 'हेल्प कॉल क्लियर हुई', 'হেল্প কল ক্লিয়ার হয়েছে'],
+      ['Help call', 'हेल्प कॉल', 'হেল্প কল'], ['Help calls', 'हेल्प कॉल', 'হেল্প কল'], ['Help call NOT accepted', 'हेल्प कॉल स्वीकार नहीं हुई', 'হেল্প কল গ্রহণ করা হয়নি'], ['A colleague needs help', 'एक साथी को मदद चाहिए', 'একজন সহকর্মীর সাহায্য দরকার'],
+      ['✔ Accept', '✔ स्वीकार', '✔ গ্রহণ'], ['🤝 Accept', '🤝 स्वीकार', '🤝 গ্রহণ'], ['Accept', 'स्वीकार', 'গ্রহণ'], ['✔ Clear', '✔ क्लियर', '✔ ক্লিয়ার'], ['Clear', 'क्लियर', 'ক্লিয়ার'], ['Send helper', 'हेल्पर भेजें', 'হেল্পার পাঠান'], ['Helper', 'हेल्पर', 'হেল্পার'], ['a helper', 'एक हेल्पर', 'একজন হেল্পার'],
+      ['⭐ Nearest to you', '⭐ आपके सबसे नज़दीक', '⭐ আপনার সবচেয়ে কাছে'], ['Same aisle', 'उसी एज़ल में', 'একই আইলে'], ['Supervisor', 'सुपरवाइज़र', 'সুপারভাইজার'], ['Supervisor (Dashboard)', 'सुपरवाइज़र (डैशबोर्ड)', 'সুপারভাইজার (ড্যাশবোর্ড)'], ['Dashboard', 'डैशबोर्ड', 'ড্যাশবোর্ড'],
+      ['Thanks', 'धन्यवाद', 'ধন্যবাদ'], ['Notification', 'सूचना', 'বিজ্ঞপ্তি'], ['None', 'कोई नहीं', 'কিছু নেই'], ['Off duty', 'ड्यूटी से बाहर', 'ডিউটির বাইরে'], ['On Leave', 'छुट्टी पर', 'ছুটিতে'], ['Leave / Absent', 'छुट्टी / अनुपस्थित', 'ছুটি / অনুপস্থিত'], ['Left early', 'जल्दी गए', 'আগে বেরিয়েছে'],
+      ['Scheduled Rest Day', 'निर्धारित छुट्टी का दिन', 'নির্ধারিত বিশ্রামের দিন'], ['Enjoy your day off.', 'अपनी छुट्टी का आनंद लें।', 'আপনার ছুটি উপভোগ করুন।'], ['Marked Absent', 'अनुपस्थित दर्ज', 'অনুপস্থিত চিহ্নিত'], ['Speak to your team lead if this is a mistake.', 'अगर यह गलती है तो अपने टीम लीड से बात करें।', 'এটি ভুল হলে আপনার টিম লিডের সাথে কথা বলুন।'],
+      ['Early out recorded', 'जल्दी निकलना दर्ज', 'আগে বেরোনো নথিভুক্ত'], ['You have left for the day.', 'आप आज के लिए जा चुके हैं।', 'আপনি আজকের জন্য চলে গেছেন।'], ['You are marked on leave today.', 'आज आप छुट्टी पर दर्ज हैं।', 'আজ আপনি ছুটিতে আছেন।'], ['Primary duty station', 'मुख्य ड्यूटी स्टेशन', 'প্রধান ডিউটি স্টেশন'],
+      ['Request removed', 'रिक्वेस्ट हटा दी गई', 'অনুরোধ সরানো হয়েছে'], ['Count sent', 'गिनती भेज दी गई', 'গণনা পাঠানো হয়েছে'], ['Putaway recorded. Leaderboard updated.', 'पुटअवे दर्ज हुआ। लीडरबोर्ड अपडेट हुआ।', 'পুটঅ্যাওয়ে নথিভুক্ত। লিডারবোর্ড আপডেট হয়েছে।'],
+      ['AWB sent. Waiting for the TL count...', 'AWB भेज दिया। TL की गिनती का इंतज़ार...', 'AWB পাঠানো হয়েছে। TL-এর গণনার অপেক্ষা...'], ['Enter or scan an AWB first.', 'पहले AWB डालें या स्कैन करें।', 'আগে AWB লিখুন বা স্ক্যান করুন।'], ['Enter a quantity.', 'मात्रा डालें।', 'পরিমাণ লিখুন।'], ['Enter the time.', 'समय डालें।', 'সময় লিখুন।'],
+      ['Select a colleague and a line.', 'साथी और लाइन चुनें।', 'সহকর্মী ও লাইন বাছুন।'], ['Select a colleague first.', 'पहले साथी चुनें।', 'আগে সহকর্মী বাছুন।'], ['Select a colleague.', 'साथी चुनें।', 'সহকর্মী বাছুন।'], ['No colleague found.', 'कोई साथी नहीं मिला।', 'কোনো সহকর্মী পাওয়া যায়নি।'], ['Write a message first.', 'पहले संदेश लिखें।', 'আগে বার্তা লিখুন।'],
+      ['Everyone is already present', 'सभी पहले से उपस्थित हैं', 'সবাই আগে থেকেই উপস্থিত'], ['Attendance updated', 'उपस्थिति अपडेट हुई', 'উপস্থিতি আপডেট হয়েছে'], ['Bell rung. Colleague terminal is buzzing.', 'घंटी बज गई। साथी का टर्मिनल बज रहा है।', 'বেল বেজেছে। সহকর্মীর টার্মিনাল বাজছে।'],
+      ['Session expired. Please log in again.', 'सेशन खत्म। कृपया दोबारा लॉगिन करें।', 'সেশন শেষ। আবার লগইন করুন।'], ['Shift ended. You have been logged out.', 'शिफ्ट खत्म। आप लॉग आउट हो गए हैं।', 'শিফট শেষ। আপনি লগ আউট হয়েছেন।'], ['Your profile was removed from the roster.', 'आपकी प्रोफ़ाइल रोस्टर से हटा दी गई है।', 'আপনার প্রোফাইল রোস্টার থেকে সরানো হয়েছে।'],
+      ['Shift is closed. View only - break, help and requests are disabled.', 'शिफ्ट बंद है। सिर्फ देखें - ब्रेक, हेल्प और रिक्वेस्ट बंद हैं।', 'শিফট বন্ধ। শুধু দেখা যাবে - ব্রেক, হেল্প ও অনুরোধ বন্ধ।'], ['Not connected to the server.', 'सर्वर से कनेक्ट नहीं है।', 'সার্ভারের সাথে সংযোগ নেই।'], ['Network problem. Try again.', 'नेटवर्क समस्या। दोबारा कोशिश करें।', 'নেটওয়ার্ক সমস্যা। আবার চেষ্টা করুন।'],
+      ['Could not load PDA details.', 'PDA की जानकारी लोड नहीं हो सकी।', 'PDA-র তথ্য লোড করা যায়নি।'], ['Could not load productivity.', 'प्रोडक्टिविटी लोड नहीं हो सकी।', 'প্রোডাক্টিভিটি লোড করা যায়নি।'], ['No PDA is issued to your ID right now.', 'अभी आपकी ID पर कोई PDA इश्यू नहीं है।', 'এই মুহূর্তে আপনার ID-তে কোনো PDA ইস্যু নেই।'],
+      ['No productivity found for your ID yesterday.', 'कल आपकी ID का कोई डेटा नहीं मिला।', 'গতকাল আপনার ID-র কোনো ডেটা পাওয়া যায়নি।'], ['No match.', 'कोई मेल नहीं।', 'মিল পাওয়া যায়নি।'], ['Nobody with 2+ active hours on this task.', 'इस टास्क पर 2+ सक्रिय घंटे वाला कोई नहीं।', 'এই টাস্কে ২+ সক্রিয় ঘণ্টার কেউ নেই।'],
+      ['2nd PDA', '2nd PDA', '২য় PDA'], ['swap', 'स्वैप', 'সোয়াপ'], ['since', 'से', 'থেকে'], ['Weak network - retrying...', 'कमज़ोर नेटवर्क - दोबारा कोशिश जारी...', 'দুর্বল নেটওয়ার্ক - আবার চেষ্টা চলছে...'], ['Saved actions sent', 'सेव किए एक्शन भेज दिए गए', 'সেভ করা কাজ পাঠানো হয়েছে'],
+      ['No network. Saved - will send automatically.', 'नेटवर्क नहीं। सेव हो गया - अपने आप भेजा जाएगा।', 'নেটওয়ার্ক নেই। সেভ হয়েছে - নিজে থেকেই পাঠানো হবে।'], ['No network - your actions are saved and will be sent when you are back online', 'नेटवर्क नहीं है - आपके एक्शन सेव हैं, नेट आते ही भेज दिए जाएँगे', 'নেটওয়ার্ক নেই - আপনার কাজ সেভ আছে, নেট এলেই পাঠানো হবে'],
+      ['Break ends in 2 minutes - get ready to return.', 'ब्रेक 2 मिनट में खत्म होगा - लौटने की तैयारी करें।', 'ব্রেক ২ মিনিটে শেষ - ফেরার জন্য তৈরি হন।'], ['Mon', 'सोम', 'সোম'], ['Tue', 'मंगल', 'মঙ্গল'], ['Wed', 'बुध', 'বুধ'], ['Thu', 'गुरु', 'বৃহ'], ['Fri', 'शुक्र', 'শুক্র'], ['Sat', 'शनि', 'শনি'], ['Sun', 'रवि', 'রবি'],
+      ['Min', 'न्यूनतम', 'ন্যূনতম'], ['Message (max 240 characters)', 'संदेश (अधिकतम 240 अक्षर)', 'বার্তা (সর্বোচ্চ ২৪০ অক্ষর)']
+    ];
+    // sentences with a changing part: [regex, hindi(m, tr), bangla(m, tr)]
+    var TR_RULES = [
+      [/^Shift A • (.+)$/, function (m, t) { return 'शिफ्ट A • ' + t(m[1]); }, function (m, t) { return 'শিফট A • ' + t(m[1]); }],
+      [/^Welcome (.*)$/, function (m) { return 'स्वागत है ' + m[1]; }, function (m) { return 'স্বাগতম ' + m[1]; }],
+      [/^My today: (\d+) AWBs • (\d+) Qty$/, function (m) { return 'आज मेरा: ' + m[1] + ' AWB • ' + m[2] + ' मात्रा'; }, function (m) { return 'আজ আমার: ' + m[1] + ' AWB • ' + m[2] + ' পরিমাণ'; }],
+      [/^(.*) is calling you$/, function (m) { return m[1] + ' आपको बुला रहे हैं'; }, function (m) { return m[1] + ' আপনাকে ডাকছেন'; }],
+      [/^Your break is over by (\d+) min\. Please return to your station now\.$/, function (m) { return 'आपका ब्रेक ' + m[1] + ' मिनट ज़्यादा हो गया। कृपया अभी स्टेशन पर लौटें।'; }, function (m) { return 'আপনার ব্রেক ' + m[1] + ' মিনিট বেশি হয়েছে। এখনই স্টেশনে ফিরুন।'; }],
+      [/^Break ended \(\+(\d+) min overtime logged\)$/, function (m) { return 'ब्रेक खत्म (+' + m[1] + ' मिनट ओवरटाइम दर्ज)'; }, function (m) { return 'ব্রেক শেষ (+' + m[1] + ' মিনিট ওভারটাইম নথিভুক্ত)'; }],
+      [/^Deployed as helper \(base (.+)\)$/, function (m) { return 'हेल्पर के रूप में तैनात (मूल ' + m[1] + ')'; }, function (m) { return 'হেল্পার হিসেবে নিয়োগ (মূল ' + m[1] + ')'; }],
+      [/^Deployed as helper to (.+)$/, function (m) { return m[1] + ' पर हेल्पर के रूप में तैनात'; }, function (m) { return m[1] + '-এ হেল্পার হিসেবে নিয়োগ'; }],
+      [/^Covering \(planned (.+)\)$/, function (m) { return 'कवर कर रहे (योजना ' + m[1] + ')'; }, function (m) { return 'কভার করছেন (পরিকল্পনা ' + m[1] + ')'; }],
+      [/^(.+) is coming to (.+)$/, function (m) { return m[1] + ' ' + m[2] + ' पर आ रहे हैं'; }, function (m) { return m[1] + ' ' + m[2] + '-এ আসছেন'; }],
+      [/^(.+) is coming$/, function (m) { return m[1] + ' आ रहे हैं'; }, function (m) { return m[1] + ' আসছেন'; }],
+      [/^Waiting for a Floor Lead \((.+)\)\.\.\.$/, function (m) { return 'फ्लोर लीड का इंतज़ार (' + m[1] + ')...'; }, function (m) { return 'ফ্লোর লিডের অপেক্ষা (' + m[1] + ')...'; }],
+      [/^Accepted by (.+?) - on the way \((.+)\)$/, function (m) { return m[1] + ' ने स्वीकार किया - रास्ते में (' + m[2] + ')'; }, function (m) { return m[1] + ' গ্রহণ করেছেন - পথে (' + m[2] + ')'; }],
+      [/^Accepted by (.+)$/, function (m) { return m[1] + ' ने स्वीकार किया'; }, function (m) { return m[1] + ' গ্রহণ করেছেন'; }],
+      [/^(.+) accepted (.+)$/, function (m) { return m[1] + ' ने स्वीकार किया: ' + m[2]; }, function (m) { return m[1] + ' গ্রহণ করেছেন: ' + m[2]; }],
+      [/^(.+) cleared (.+)$/, function (m) { return m[1] + ' ने क्लियर किया: ' + m[2]; }, function (m) { return m[1] + ' ক্লিয়ার করেছেন: ' + m[2]; }],
+      [/^(.+) sent (.+) to (.+)$/, function (m) { return m[1] + ' ने ' + m[2] + ' को ' + m[3] + ' पर भेजा'; }, function (m) { return m[1] + ' ' + m[2] + '-কে ' + m[3] + '-এ পাঠিয়েছেন'; }],
+      [/^(.+) sent$/, function (m) { return m[1] + ' भेजा गया'; }, function (m) { return m[1] + ' পাঠানো হয়েছে'; }],
+      [/^Your help call was cleared by (.+)$/, function (m) { return 'आपकी हेल्प कॉल ' + m[1] + ' ने क्लियर की'; }, function (m) { return 'আপনার হেল্প কল ' + m[1] + ' ক্লিয়ার করেছেন'; }],
+      [/^(\d+) colleague\(s\) marked present$/, function (m) { return m[1] + ' साथी उपस्थित दर्ज'; }, function (m) { return m[1] + ' জন সহকর্মী উপস্থিত চিহ্নিত'; }],
+      [/^Waiting (\d+m)$/, function (m) { return 'इंतज़ार ' + m[1]; }, function (m) { return 'অপেক্ষা ' + m[1]; }],
+      [/^(\d+) aisle\(s\) away$/, function (m) { return m[1] + ' एज़ल दूर'; }, function (m) { return m[1] + ' আইল দূরে'; }],
+      [/^Nearest FL: (.+)$/, function (m) { return 'सबसे नज़दीकी FL: ' + m[1]; }, function (m) { return 'সবচেয়ে কাছের FL: ' + m[1]; }],
+      [/^(\d+) units · (\d+) people$/, function (m) { return m[1] + ' इकाइयाँ · ' + m[2] + ' लोग'; }, function (m) { return m[1] + ' ইউনিট · ' + m[2] + ' জন'; }],
+      [/^No productivity data for (.+)\.$/, function (m) { return m[1] + ' का कोई प्रोडक्टिविटी डेटा नहीं।'; }, function (m) { return m[1] + '-এর কোনো প্রোডাক্টিভিটি ডেটা নেই।'; }],
+      [/^No productivity found for your ID on (.+)\.$/, function (m) { return m[1] + ' को आपकी ID का कोई डेटा नहीं मिला।'; }, function (m) { return m[1] + '-এ আপনার ID-র কোনো ডেটা পাওয়া যায়নি।'; }],
+      [/^(\d+)h$/, function (m) { return m[1] + ' घंटे'; }, function (m) { return m[1] + ' ঘণ্টা'; }],
+      [/^(\d+) in (\d+)h · (.+) TPH$/, function (m) { return m[1] + ' (' + m[2] + ' घंटे) · ' + m[3] + ' TPH'; }, function (m) { return m[1] + ' (' + m[2] + ' ঘণ্টা) · ' + m[3] + ' TPH'; }],
+      [/^(\d+) (?:waiting to send|saved)$/, function (m) { return m[1] + ' भेजने के लिए बाकी'; }, function (m) { return m[1] + ' পাঠানোর অপেক্ষায়'; }],
+      [/^(.+) \((Absent)\)$/, function (m, t) { return m[1] + ' (' + t('Absent') + ')'; }, function (m, t) { return m[1] + ' (' + t('Absent') + ')'; }],
+      [/^(.+) \((Leave)\)$/, function (m, t) { return m[1] + ' (' + t('Leave') + ')'; }, function (m, t) { return m[1] + ' (' + t('Leave') + ')'; }],
+      [/^(.+) - left (.+)$/, function (m) { return m[1] + ' - ' + m[2] + ' पर गए'; }, function (m) { return m[1] + ' - ' + m[2] + '-এ বেরিয়েছে'; }],
+      [/^(.+) \[Break\]$/, function (m) { return m[1] + ' [ब्रेक]'; }, function (m) { return m[1] + ' [ব্রেক]'; }],
+      [/^(.+) \((Present|Absent|Leave|Week off|Early out|Late)\)$/, function (m, t) { return m[1] + ' (' + t(m[2]) + ')'; }, function (m, t) { return m[1] + ' (' + t(m[2]) + ')'; }]
+    ];
+    var TR_MAP = {}; TR_LIST.forEach(function (r) { TR_MAP[r[0]] = { hi: r[1], bn: r[2] }; });
+    var TR_WORDS = [
+      ['Outbound Picking', 'आउटबाउंड पिकिंग', 'আউটবাউন্ড পিকিং'], ['Stock Take', 'स्टॉक टेक', 'স্টক টেক'], ['High Value', 'हाई वैल्यू', 'হাই ভ্যালু'],
+      ['Floor Lead', 'फ्लोर लीड', 'ফ্লোর লিড'], ['Dispatch', 'डिस्पैच', 'ডিসপ্যাচ'], ['Consolidation', 'कंसोलिडेशन', 'কনসোলিডেশন'], ['Putaway', 'पुटअवे', 'পুটঅ্যাওয়ে'],
+      ['Aisle', 'एज़ल', 'আইল'], ['Forward Transfer', 'फॉरवर्ड ट्रांसफर', 'ফরওয়ার্ড ট্রান্সফার'], ['Back Transfer', 'बैक ट्रांसफर', 'ব্যাক ট্রান্সফার'], ['Returns', 'रिटर्न्स', 'রিটার্নস'], ['Logistic Associate', 'लॉजिस्टिक एसोसिएट', 'লজিস্টিক অ্যাসোসিয়েট'], ['2nd PDA', 'दूसरा PDA', 'দ্বিতীয় PDA'], ['Everyone', 'सभी', 'সবাই'], ['Announcement from', 'घोषणा -', 'ঘোষণা -']
+    ];
+    TR_WORDS.forEach(function (r) { if (!TR_MAP[r[0]]) TR_MAP[r[0]] = { hi: r[1], bn: r[2] }; });
+    [['Got it', 'समझ गया', 'বুঝেছি'], ['✔ Got it', '✔ समझ गया', '✔ বুঝেছি'], ['No Non Sort requests.', 'कोई नॉन सॉर्ट रिक्वेस्ट नहीं।', 'কোনো নন সর্ট রিকোয়েস্ট নেই।'], ['Supervisor', 'सुपरवाइज़र', 'সুপারভাইজার'], ['Team Lead', 'टीम लीड', 'টিম লিড']].forEach(function (r) { TR_MAP[r[0]] = { hi: r[1], bn: r[2] }; });
+    [['🏆 Best', '🏆 बेस्ट', '🏆 সেরা'], ['Last 7 days', 'पिछले 7 दिन', 'গত ৭ দিন'], ['Last 30 days', 'पिछले 30 दिन', 'গত ৩০ দিন'], ['Last 7 days (TPH)', 'पिछले 7 दिन (TPH)', 'গত ৭ দিন (TPH)'],
+      ['🏆 Most units', '🏆 सबसे ज़्यादा मात्रा', '🏆 সর্বাধিক পরিমাণ'], ['🎯 Best vs target', '🎯 टारगेट के मुकाबले सबसे अच्छे', '🎯 টার্গেটের তুলনায় সেরা'],
+      ['Not enough data yet.', 'अभी पर्याप्त डेटा नहीं।', 'এখনও যথেষ্ট ডেটা নেই।'], ['Your rank', 'आपकी रैंक', 'আপনার র‍্যাঙ্ক'], ['gap', 'गैप', 'গ্যাপ'],
+      ['No productivity data in this period.', 'इस अवधि का कोई प्रोडक्टिविटी डेटा नहीं।', 'এই সময়ের কোনো প্রোডাক্টিভিটি ডেটা নেই।']].forEach(function (r) { TR_MAP[r[0]] = { hi: r[1], bn: r[2] }; });
+    [['🏭 Floor', '🏭 फ्लोर', '🏭 ফ্লোর'], ['🚨 Help', '🚨 हेल्प', '🚨 হেল্প'], ['📢 Message', '📢 संदेश', '📢 বার্তা'], ['👥 Team', '👥 टीम', '👥 টিম'],
+      ['On duty', 'ड्यूटी पर', 'ডিউটিতে'], ['On break', 'ब्रेक पर', 'বিরতিতে'], ['Overstay', 'ब्रेक से ज़्यादा', 'বিরতির বেশি'], ['Helpers', 'हेल्पर', 'হেল্পার'], ['Helper', 'हेल्पर', 'হেল্পার'],
+      ['📈 Team productivity', '📈 टीम प्रोडक्टिविटी', '📈 টিম প্রোডাক্টিভিটি'], ['📢 New message to the group', '📢 ग्रुप को नया संदेश', '📢 গ্রুপকে নতুন বার্তা'], ['Title (optional)', 'शीर्षक (वैकल्पिक)', 'শিরোনাম (ঐচ্ছিক)'],
+      ['Write the important message...', 'ज़रूरी संदेश लिखें...', 'গুরুত্বপূর্ণ বার্তা লিখুন...'], ['📷 Add photo', '📷 फोटो जोड़ें', '📷 ছবি যোগ করুন'], ['✕ Remove', '✕ हटाएँ', '✕ সরান'], ['Send to', 'किसे भेजें', 'কাকে পাঠাবেন'],
+      ['Search name...', 'नाम खोजें...', 'নাম খুঁজুন...'], ['Normal', 'सामान्य', 'সাধারণ'], ['🚨 Urgent', '🚨 ज़रूरी', '🚨 জরুরি'], ['Until shift ends', 'शिफ्ट खत्म होने तक', 'শিফট শেষ হওয়া পর্যন্ত'], ['24 hours', '24 घंटे', '২৪ ঘণ্টা'], ['3 days', '3 दिन', '৩ দিন'],
+      ['Until I remove it', 'मेरे हटाने तक', 'আমি না সরানো পর্যন্ত'], ['📢 Send to everyone selected', '📢 चुने हुए सभी को भेजें', '📢 নির্বাচিত সবাইকে পাঠান'], ['Active messages', 'चालू संदेश', 'চলমান বার্তা'], ['Earlier messages', 'पुराने संदेश', 'আগের বার্তা'],
+      ['No active messages.', 'कोई चालू संदेश नहीं।', 'কোনো চলমান বার্তা নেই।'], ['🔔 Remind unseen', '🔔 जिन्होंने नहीं देखा उन्हें याद दिलाएँ', '🔔 যারা দেখেনি তাদের মনে করান'], ['🗑 End', '🗑 बंद करें', '🗑 শেষ করুন'], ['❓ Not clear', '❓ समझ नहीं आया', '❓ বুঝিনি'],
+      ['🚨 Urgent message', '🚨 ज़रूरी संदेश', '🚨 জরুরি বার্তা'], ['Photo could not load', 'फोटो नहीं खुल पाई', 'ছবি লোড হয়নি'], ['Uploading photo...', 'फोटो अपलोड हो रही है...', 'ছবি আপলোড হচ্ছে...'], ['✔ Photo ready', '✔ फोटो तैयार', '✔ ছবি তৈরি'],
+      ['Upload failed - remove and try again', 'अपलोड नहीं हुआ - हटाकर फिर कोशिश करें', 'আপলোড হয়নি - সরিয়ে আবার চেষ্টা করুন'], ['Message sent', 'संदेश भेज दिया', 'বার্তা পাঠানো হয়েছে'], ['Reminder sent', 'याद दिलाया गया', 'মনে করানো হয়েছে'], ['Message ended', 'संदेश बंद किया', 'বার্তা শেষ'],
+      ['Photo is still uploading...', 'फोटो अभी अपलोड हो रही है...', 'ছবি এখনও আপলোড হচ্ছে...'], ['Write a message or add a photo first.', 'पहले संदेश लिखें या फोटो जोड़ें।', 'আগে বার্তা লিখুন বা ছবি যোগ করুন।'],
+      ['↔ Move to another line', '↔ दूसरी लाइन में भेजें', '↔ অন্য লাইনে পাঠান'], ['☕ End break', '☕ ब्रेक खत्म करें', '☕ বিরতি শেষ করুন'], ['☕ Start break', '☕ ब्रेक शुरू करें', '☕ বিরতি শুরু করুন'], ['↩ Return to own line', '↩ अपनी लाइन पर वापस', '↩ নিজের লাইনে ফেরত'],
+      ['🤝 Send as helper to…', '🤝 हेल्पर बनाकर भेजें…', '🤝 হেল্পার হিসেবে পাঠান…'], ['🔔 Ring bell (call to desk)', '🔔 घंटी बजाएँ (डेस्क पर बुलाएँ)', '🔔 বেল বাজান (ডেস্কে ডাকুন)'], ['📋 Attendance (present / absent / late…)', '📋 उपस्थिति (हाज़िर / गैरहाज़िर / लेट…)', '📋 উপস্থিতি (উপস্থিত / অনুপস্থিত / লেট…)'],
+      ['Move to line', 'लाइन में भेजें', 'লাইনে পাঠান'], ['Send as helper to', 'हेल्पर बनाकर भेजें', 'হেল্পার হিসেবে পাঠান'], ['‹ Back', '‹ वापस', '‹ ফিরে যান'], ['Enter the time.', 'समय डालें।', 'সময় দিন।'], ['Break started', 'ब्रेक शुरू', 'বিরতি শুরু'],
+      ['Returned to own line', 'अपनी लाइन पर वापस', 'নিজের লাইনে ফেরত'], ['Bell rung', 'घंटी बजा दी', 'বেল বাজানো হয়েছে'], ['Shift is closed - most actions are disabled.', 'शिफ्ट बंद है - ज़्यादातर काम बंद हैं।', 'শিফট বন্ধ - বেশিরভাগ কাজ বন্ধ।'],
+      ['🔔 Report to TL desk immediately', '🔔 तुरंत TL डेस्क पर आएँ', '🔔 এখনই TL ডেস্কে আসুন'], ['🔔 Check your line right now', '🔔 अभी अपनी लाइन देखें', '🔔 এখনই আপনার লাইন দেখুন'], ['🔔 Break ended - return to line', '🔔 ब्रेक खत्म - लाइन पर लौटें', '🔔 বিরতি শেষ - লাইনে ফিরুন'], ['🔔 Call your Floor Lead now', '🔔 अभी अपने फ्लोर लीड को बुलाएँ', '🔔 এখনই আপনার ফ্লোর লিডকে ডাকুন'],
+      ['Not on duty', 'ड्यूटी पर नहीं', 'ডিউটিতে নেই']].forEach(function (r) { TR_MAP[r[0]] = { hi: r[1], bn: r[2] }; });
+    TR_RULES.push(
+      [/^(\d+) active(?: · (\d+) break)?(?: · min (\d+))?$/, function (m) { return m[1] + ' सक्रिय' + (m[2] ? ' · ' + m[2] + ' ब्रेक' : '') + (m[3] ? ' · न्यूनतम ' + m[3] : ''); }, function (m) { return m[1] + ' সক্রিয়' + (m[2] ? ' · ' + m[2] + ' বিরতি' : '') + (m[3] ? ' · সর্বনিম্ন ' + m[3] : ''); }],
+      [/^Not on duty \((\d+)\)$/, function (m) { return 'ड्यूटी पर नहीं (' + m[1] + ')'; }, function (m) { return 'ডিউটিতে নেই (' + m[1] + ')'; }],
+      [/^👤 People(?: \((\d+)\))?$/, function (m) { return '👤 लोग' + (m[1] ? ' (' + m[1] + ')' : ''); }, function (m) { return '👤 মানুষ' + (m[1] ? ' (' + m[1] + ')' : ''); }],
+      [/^Seen (\d+) of (\d+)$/, function (m) { return m[2] + ' में से ' + m[1] + ' ने देखा'; }, function (m) { return m[2] + ' জনের মধ্যে ' + m[1] + ' জন দেখেছে'; }],
+      [/^([▸▾]) Not seen yet \((\d+)\)$/, function (m) { return m[1] + ' अभी नहीं देखा (' + m[2] + ')'; }, function (m) { return m[1] + ' এখনও দেখেনি (' + m[2] + ')'; }],
+      [/^❓ Not clear: (.+)$/, function (m) { return '❓ समझ नहीं आया: ' + m[1]; }, function (m) { return '❓ বুঝিনি: ' + m[1]; }],
+      [/^📢 Messages \((\d+)\)$/, function (m) { return '📢 संदेश (' + m[1] + ')'; }, function (m) { return '📢 বার্তা (' + m[1] + ')'; }],
+      [/^(.+) · (.+) · seen (\d+)\/(\d+) · (ended|expired)$/, function (m) { return m[1] + ' · ' + m[2] + ' · देखा ' + m[3] + '/' + m[4] + ' · ' + (m[5] === 'ended' ? 'बंद' : 'समाप्त'); }, function (m) { return m[1] + ' · ' + m[2] + ' · দেখেছে ' + m[3] + '/' + m[4] + ' · ' + (m[5] === 'ended' ? 'শেষ' : 'মেয়াদ শেষ'); }],
+      [/^Moved to (.+)$/, function (m) { return m[1] + ' में भेजा गया'; }, function (m) { return m[1] + '-এ পাঠানো হয়েছে'; }],
+      [/^Sent as helper to (.+)$/, function (m) { return m[1] + ' में हेल्पर बनाकर भेजा'; }, function (m) { return m[1] + '-এ হেল্পার হিসেবে পাঠানো হয়েছে'; }],
+      [/^(\d+) \/ (\d+)$/, function (m) { return m[1] + ' / ' + m[2]; }, function (m) { return m[1] + ' / ' + m[2]; }],
+      [/^▲ (\d+)% better than (.+)$/, function (m) { return '▲ ' + m[2] + ' से ' + m[1] + '% बेहतर'; }, function (m) { return '▲ ' + m[2] + '-এর চেয়ে ' + m[1] + '% ভালো'; }],
+      [/^▼ (\d+)% lower than (.+)$/, function (m) { return '▼ ' + m[2] + ' से ' + m[1] + '% कम'; }, function (m) { return '▼ ' + m[2] + '-এর চেয়ে ' + m[1] + '% কম'; }],
+      [/^= same as (.+)$/, function (m) { return '= ' + m[1] + ' के बराबर'; }, function (m) { return '= ' + m[1] + '-এর সমান'; }],
+      [/^🎯 (\d+)% of target$/, function (m) { return '🎯 टारगेट का ' + m[1] + '%'; }, function (m) { return '🎯 টার্গেটের ' + m[1] + '%'; }],
+      [/^⚠ No entries at (.+)$/, function (m) { return '⚠ इन घंटों में एंट्री नहीं: ' + m[1]; }, function (m) { return '⚠ এই ঘণ্টায় এন্ট্রি নেই: ' + m[1]; }],
+      [/^⚠ (\d+) gap$/, function (m) { return '⚠ ' + m[1] + ' गैप'; }, function (m) { return '⚠ ' + m[1] + ' গ্যাপ'; }],
+      [/^\(target (\d+)\/h\)$/, function (m) { return '(टारगेट ' + m[1] + '/घंटा)'; }, function (m) { return '(টার্গেট ' + m[1] + '/ঘণ্টা)'; }],
+      [/^Target (\d+)\/hr · (\d+) of (\d+) on target$/, function (m) { return 'टारगेट ' + m[1] + '/घंटा · ' + m[2] + '/' + m[3] + ' टारगेट पर'; }, function (m) { return 'টার্গেট ' + m[1] + '/ঘণ্টা · ' + m[2] + '/' + m[3] + ' টার্গেটে'; }],
+      [/^(\d+) of (\d+) on target$/, function (m) { return m[1] + '/' + m[2] + ' टारगेट पर'; }, function (m) { return m[1] + '/' + m[2] + ' টার্গেটে'; }],
+      [/^Target (\d+)\/hr$/, function (m) { return 'टारगेट ' + m[1] + '/घंटा'; }, function (m) { return 'টার্গেট ' + m[1] + '/ঘণ্টা'; }],
+      [/^(\d+)d · (\d+)h · (.+) TPH$/, function (m) { return m[1] + ' दिन · ' + m[2] + ' घंटे · ' + m[3] + ' TPH'; }, function (m) { return m[1] + ' দিন · ' + m[2] + ' ঘণ্টা · ' + m[3] + ' TPH'; }],
+      [/^(.+) → (.+) · (\d+) people$/, function (m) { return m[1] + ' → ' + m[2] + ' · ' + m[3] + ' लोग'; }, function (m) { return m[1] + ' → ' + m[2] + ' · ' + m[3] + ' জন'; }],
+      [/^of (\d+)$/, function (m) { return m[1] + ' में से'; }, function (m) { return m[1] + '-এর মধ্যে'; }],
+      [/^(\d+) units · (.+) TPH$/, function (m) { return m[1] + ' इकाइयाँ · ' + m[2] + ' TPH'; }, function (m) { return m[1] + ' ইউনিট · ' + m[2] + ' TPH'; }],
+      [/^📈 Productivity data for (.+) is now live$/, function (m) { return '📈 ' + m[1] + ' का प्रोडक्टिविटी डेटा अपडेट हो गया'; }, function (m) { return '📈 ' + m[1] + '-এর প্রোডাক্টিভিটি ডেটা আপডেট হয়েছে'; }],
+      [/^\((\d+) min\)$/, function (m) { return '(' + m[1] + ' मिनट)'; }, function (m) { return '(' + m[1] + ' মিনিট)'; }],
+      [/^(.+) - (Outbound Picking|Stock Take|High Value|Floor Lead|Dispatch|Consolidation)$/, function (m, t) { return m[1] + ' - ' + t(m[2]); }, function (m, t) { return m[1] + ' - ' + t(m[2]); }],
+      [/^(?:📢 )?Announcement from (.+?) • (.+)$/, function (m, t) { return '📢 ' + m[1] + ' की घोषणा • ' + t(m[2]); }, function (m, t) { return '📢 ' + m[1] + '-এর ঘোষণা • ' + t(m[2]); }],
+      [/^(.+): (\d+)$/, function (m, t) { return t(m[1].replace(/\b\w/g, function (c) { return c.toUpperCase(); })) + ': ' + m[2]; }, function (m, t) { return t(m[1].replace(/\b\w/g, function (c) { return c.toUpperCase(); })) + ': ' + m[2]; }]
+    );
+    // fallback: translate known words/phrases inside a longer sentence (e.g. "📍 Aisle 4 (PK) • 01:18 AM")
+    function trInline(core, lg) {
+      var out = core, changed = false;
+      TR_WORDS.forEach(function (r) { var v = r[lg === 'hi' ? 1 : 2]; if (out.indexOf(r[0]) >= 0) { out = out.split(r[0]).join(v); changed = true; } });
+      return changed ? out : core;
+    }
+    function trStr(s) {
+      if (S.lang === 'en' || !s) return s;
+      var lead = s.match(/^\s*/)[0], trail = s.match(/\s*$/)[0], core = s.trim();
+      if (!core) return s;
+      var lg = S.lang;
+      function t(x) { var h = TR_MAP[x]; return h && h[lg] ? h[lg] : x; }
+      var hit = TR_MAP[core];
+      if (hit && hit[lg]) return lead + hit[lg] + trail;
+      for (var i = 0; i < TR_RULES.length; i++) {
+        var m = core.match(TR_RULES[i][0]);
+        if (m) return lead + trInline(TR_RULES[i][lg === 'hi' ? 1 : 2](m, t), lg) + trail;
+      }
+      var inl = trInline(core, lg); if (inl !== core) return lead + inl + trail;
+      return s;
+    }
+    var trBusy = false;
+    var trUsed = false;
+    function trNode(n) {
+      if (n._en === undefined || n.data !== n._tr) n._en = n.data;     // new English written by the app
+      var out = trStr(n._en); if (out !== n._en) trUsed = true;
+      n._tr = out; if (n.data !== out) n.data = out;
+    }
+    function trAttrs(el) {
+      ['placeholder', 'title'].forEach(function (a) {
+        if (!el.hasAttribute(a)) return;
+        var key = '_en_' + a, cur = el.getAttribute(a);
+        if (el[key] === undefined || cur !== el['_tr_' + a]) el[key] = cur;
+        var out = trStr(el[key]); el['_tr_' + a] = out; if (cur !== out) el.setAttribute(a, out);
+      });
+    }
+    function trScan(root) {
+      if (trBusy) return; trBusy = true;
+      try {
+        var w = document.createTreeWalker(root || document.body, NodeFilter.SHOW_TEXT | NodeFilter.SHOW_ELEMENT, null);
+        var n = w.currentNode;
+        while (n) {
+          if (n.nodeType === 3) { var p = n.parentNode; if (p && p.nodeName !== 'SCRIPT' && p.nodeName !== 'STYLE' && n.data.trim()) trNode(n); }
+          else if (n.nodeType === 1) trAttrs(n);
+          n = w.nextNode();
+        }
+      } finally { trBusy = false; }
+    }
+    var trTimer = 0;
+    function trSoon() { if (S.lang === 'en') return; if (!trTimer) trTimer = setTimeout(function () { trTimer = 0; trScan(); }, 0); }
+    var trMO = null, trMOTimer = 0;
+    if (window.MutationObserver) trMO = new MutationObserver(function () {
+      if (S.lang === 'en' || trBusy) { trMO.takeRecords(); return; }      // English: nothing to translate, never scan
+      if (trMOTimer) return;
+      trMOTimer = setTimeout(function () { trMOTimer = 0; trScan(); trMO.takeRecords(); }, 120);   // batch bursts of changes into one scan
+    });
+    if (trMO) trMO.observe(document.body, { childList: true, characterData: true, subtree: true, attributes: true, attributeFilter: ['placeholder', 'title'] });
+    var HELP_REASONS_DEFAULT = ['Heavy item', 'Damaged', 'Wrong location', 'Other'];
+    function renderReasonChips() {
+      var list = (S.state && S.state.helpReasons) || HELP_REASONS_DEFAULT;
+      var h = list.map(function (r) {
+        var on = S.helpReason === r;
+        return '<button data-act="pickReason" data-reason="' + esc(r) + '" class="px-3 py-1.5 rounded-full text-[11px] font-black border ' + (on ? 'bg-rose-600 border-rose-300 text-white' : 'bg-slate-800 border-slate-600 text-slate-200') + '">' + esc(T('r_' + r)) + '</button>';
+      }).join('');
+      var el = document.getElementById('helpReasonChips'); if (el) el.innerHTML = h;
+    }
+
+    function $(id) { return document.getElementById(id); }
+    function esc(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;'); }
+    function lc(s) { return String(s == null ? '' : s).trim().toLowerCase(); }
+    function show(id, on) { var el = $(id); if (el) el.classList[on ? 'remove' : 'add']('hidden'); }
+    function nowSrv() { return Date.now() + S.skew; }
+    function store(k, v) { try { if (v == null) localStorage.removeItem(k); else localStorage.setItem(k, v); } catch (e) {} }
+    function sget(k) { try { return localStorage.getItem(k) || ''; } catch (e) { return ''; } }
+
+    var toastTimer = null;
+    function toast(msg) {
+      var b = $('toastBox'); b.textContent = msg; b.classList.remove('hidden');
+      clearTimeout(toastTimer); toastTimer = setTimeout(function () { b.classList.add('hidden'); }, 3500);
+    }
+    function lockScroll() {
+      var open = ['passwordModal', 'helpLocationModal', 'sendHelperModal', 'prodModal', 'bcModal', 'ccSheet', 'photoView'].some(function (id) { return !$(id).classList.contains('hidden'); });
+      document.body.classList[open ? 'add' : 'remove']('modal-open');
+    }
+
+    // ---------- server calls ----------
+    function call(name, args, ok, fail) {
+      if (!(window.google && google.script && google.script.run)) { toast('Not connected to the server.'); if (fail) fail(); return; }
+      var r = google.script.run
+        .withSuccessHandler(function (res) { ok && ok(res); })
+        .withFailureHandler(function (e) { if (fail) fail(e); else toast('Network problem. Try again.'); });
+      r[name].apply(r, args);
+    }
+    var QUEUEABLE = { pdaSetBreakAction: 1, pdaRaiseHelpRequest: 1, flAcceptHelpRequest: 1, resolveHelpRequest: 1, pdaRequestNonSortCount: 1, pdaCompleteNonSortPutaway: 1,
+      pdaAcknowledgeBell: 1, ackAnnouncement: 1, tlSetNonSortCount: 1, pdaCancelNonSort: 1, dispatchHelperToHelpCall: 1 };
+    function qSave() { try { localStorage.setItem('pda_queue', JSON.stringify(S.queue.slice(-20))); } catch (e) {} updateNet(); }
+    function offlineNow() { return (typeof navigator !== 'undefined' && navigator.onLine === false) || S.netFails >= 2; }
+    function updateNet() {
+      var b = document.getElementById('netBanner'); if (!b) return;
+      var n = S.queue.length;
+      var off = typeof navigator !== 'undefined' && navigator.onLine === false;
+      var txt = '';
+      if (off) txt = T('net_off') + (n ? ' (' + n + ' ' + T('net_q') + ')' : '');
+      else if (S.netFails >= 2) txt = T('net_weak') + (n ? ' (' + n + ' ' + T('net_q') + ')' : '');
+      else if (n) txt = n + ' ' + T('net_q');
+      b.textContent = txt; show('netBanner', !!txt);
+    }
+    function enqueue(name, args, okMsg, key) {
+      S.queue.push({ name: name, args: args, ok: typeof okMsg === 'string' ? okMsg : '', key: key || name, ts: Date.now(), tries: 0 });
+      qSave(); toast(T('queued'));
+    }
+    function flushQueue() {
+      if (S.flushing || !S.token || !S.queue.length) return;
+      S.flushing = true;
+      (function next() {
+        var it = S.queue[0];
+        if (!it) { S.flushing = false; qSave(); return; }
+        if (Date.now() - it.ts > 15 * 60000 || it.tries >= 3) { S.queue.shift(); qSave(); next(); return; }
+        if (typeof navigator !== 'undefined' && navigator.onLine === false) { S.flushing = false; return; }
+        call(it.name, [S.token].concat(it.args), function (res) {
+          S.queue.shift(); qSave();
+          if (res && res.code === 'AUTH') { S.queue = []; qSave(); S.flushing = false; doLogout('Session expired. Please log in again.'); return; }
+          if (res && res.success) { applyState(res.state, false); } else if (res && res.error) toast(res.error);
+          if (!S.queue.length) toast(T('sent_q'));
+          next();
+        }, function () { it.tries++; qSave(); S.flushing = false; });
+      })();
+    }
+    // Replies from ACTIONS update the screen but can never trigger the shift-end auto logout.
+    function act(name, args, okMsg, key) {
+      key = key || name;
+      if (S.pending[key]) return;
+      if (QUEUEABLE[name] && offlineNow()) { enqueue(name, args, okMsg, key); return; }
+      S.pending[key] = true;
+      call(name, [S.token].concat(args), function (res) {
+        S.pending[key] = false; S.netFails = 0; updateNet();
+        if (!res) return;
+        if (res.code === 'AUTH') { doLogout('Session expired. Please log in again.'); return; }
+        if (res.success) {
+          applyState(res.state, false);
+          if (okMsg) toast(typeof okMsg === 'function' ? okMsg(res) : okMsg);
+        } else if (res.error) toast(res.error);
+      }, function () {
+        S.pending[key] = false; S.netFails++;
+        if (QUEUEABLE[name] && (offlineNow() || S.netFails >= 1)) enqueue(name, args, okMsg, key); else toast('Network problem. Try again.');
+        updateNet();
+      });
+    }
+    function applyState(st, fromPoll) {
+      if (!st || !st.serverNow) return false;
+      if (st.serverNow < S.lastNow) return false;     // stale / out-of-order reply
+      S.lastNow = st.serverNow;
+      S.skew = st.serverNow - Date.now();
+      S.state = st;
+      if (st.isShiftActive) S.sawActive = true;
+      if (checkShiftEnd()) return true;
+      checkProdVer(st.prodVer);
+      render();
+      return true;
+    }
+
+    // ---------- audio / alerts ----------
+    function unlockAudio() {
+      try {
+        if (!S.audioCtx) { var AC = window.AudioContext || window.webkitAudioContext; if (AC) S.audioCtx = new AC(); }
+        if (S.audioCtx && S.audioCtx.state === 'suspended') S.audioCtx.resume();
+      } catch (e) {}
+      refreshAlertChip();
+    }
+    function refreshAlertChip() {
+      var b = $('enableSoundBtn');
+      var ready = S.audioCtx && S.audioCtx.state === 'running';
+      b.textContent = ready ? '🔊 Alerts ready' : '🔔 Tap to enable';
+      b.className = 'px-2 py-1 text-[10px] font-black rounded-lg ' + (ready ? 'bg-emerald-700 text-white' : 'bg-amber-500 text-slate-950');
+    }
+    function buzz(count) {
+      count = count || 3;
+      try { if (navigator.vibrate) navigator.vibrate([400, 150, 400, 150, 600]); } catch (e) {}
+      try {
+        unlockAudio();
+        var ctx = S.audioCtx; if (!ctx) return;
+        var t0 = ctx.currentTime;
+        for (var i = 0; i < count; i++) {
+          var o = ctx.createOscillator(), g = ctx.createGain();
+          o.type = 'square'; o.frequency.setValueAtTime(1200, t0 + i * 0.22);
+          g.gain.setValueAtTime(0.6, t0 + i * 0.22);
+          g.gain.exponentialRampToValueAtTime(0.01, t0 + i * 0.22 + 0.18);
+          o.connect(g); g.connect(ctx.destination); o.start(t0 + i * 0.22); o.stop(t0 + i * 0.22 + 0.18);
+        }
+      } catch (e) {}
+    }
+    function notify(title, body) {
+      try { if ('Notification' in window && Notification.permission === 'granted') new Notification(title, { body: body, tag: title }); } catch (e) {}
+    }
+    function enableAlerts() {
+      unlockAudio(); buzz(1);
+      try { if ('Notification' in window && Notification.permission === 'default') Notification.requestPermission(); } catch (e) {}
+      toast('Alerts enabled');
+    }
+    function acquireWake() {
+      try {
+        if (!S.token || !navigator.wakeLock || document.visibilityState !== 'visible') return;
+        if (S.wake && !S.wake.released) return;
+        navigator.wakeLock.request('screen').then(function (l) { S.wake = l; }).catch(function () {});
+      } catch (e) {}
+    }
+
+    // ---------- login ----------
+    function loadLoginList() {
+      call('getLoginList', [], function (list) { S.loginList = list || []; renderLoginList(); }, function () {});
+    }
+    function renderLoginList() {
+      var q = lc($('workerSearchInput').value);
+      var items = S.loginList.filter(function (e) { return lc(e.name).indexOf(q) >= 0 || lc(e.id).indexOf(q) >= 0; });
+      $('workerListContainer').innerHTML = items.length ? items.map(function (e) {
+        return '<div data-act="pickWorker" data-id="' + esc(e.id) + '" class="p-3 flex items-center justify-between cursor-pointer active:bg-sky-900/40">' +
+          '<div class="min-w-0"><div class="text-xs font-bold text-white truncate">' + esc(e.name) + '</div><div class="text-[10px] text-slate-400 font-mono">' + esc(e.id) + '</div></div>' +
+          '<span class="text-[10px] font-black px-2.5 py-1 rounded bg-sky-700 text-white shrink-0">Select</span></div>';
+      }).join('') : '<div class="p-4 text-center text-slate-500 text-xs">' + (S.loginList.length ? 'No colleague found.' : 'Loading...') + '</div>';
+    }
+    function openPassword(id) {
+      S.pendingWorkerId = id;
+      var e = S.loginList.filter(function (x) { return x.id === id; })[0];
+      $('passwordModalTitle').textContent = e ? e.name : id;
+      $('pdaPasswordInput').value = '';
+      show('passwordErrorMsg', false);
+      show('passwordModal', true); lockScroll();
+      setTimeout(function () { $('pdaPasswordInput').focus(); }, 50);
+    }
+    function closePassword() { show('passwordModal', false); lockScroll(); }
+    function submitPassword() {
+      var pw = $('pdaPasswordInput').value.trim();
+      var btn = $('pdaPasswordSubmitBtn');
+      if (btn.disabled) return;
+      btn.textContent = 'Verifying...'; btn.disabled = true;
+      call('verifyPdaPassword', [S.pendingWorkerId, pw], function (res) {
+        btn.textContent = 'Authenticate'; btn.disabled = false;
+        if (res && res.success && res.token) {
+          S.token = res.token; S.empId = res.id || S.pendingWorkerId;
+          store('pda_token', S.token); store('pda_emp_id', S.empId);
+          S.state = null; S.lastNow = 0; S.closedPolls = 0; S.notFoundPolls = 0; S.sawActive = false; S.helpPrimed = false; S.seenHelp = {};
+          closePassword(); toast('Welcome ' + (res.name || '')); unlockAudio(); acquireWake(); pollOnce();
+        } else {
+          var eb = $('passwordErrorMsg'); eb.textContent = (res && res.error) || 'Incorrect password.'; show('passwordErrorMsg', true);
+        }
+      }, function () { btn.textContent = 'Authenticate'; btn.disabled = false; $('passwordErrorMsg').textContent = 'Network problem. Try again.'; show('passwordErrorMsg', true); });
+    }
+    function doLogout(msg) {
+      S.token = ''; S.empId = ''; S.state = null; S.lastNow = 0; S.yData = null; S.yFor = ''; S.devData = null; S.devFor = ''; S.queue = []; qSave(); S.seenEsc = {}; S.breakWarnFor = 0;
+      store('pda_token', null); store('pda_emp_id', null);
+      try { if (S.wake) { S.wake.release(); S.wake = null; } } catch (e) {}
+      S.sheet = null; S.bcView = ''; S.bcBuzzed = {}; S.bcPrimed = false; $('bcModal').classList.add('hidden'); $('ccSheet').classList.add('hidden'); lockScroll();
+      if (msg) toast(msg);
+      loadLoginList(); render();
+    }
+
+    // ---------- polling ----------
+    function pollOnce() {
+      if (!S.token || S.polling) return;
+      S.polling = true;
+      var tokenAtStart = S.token;
+      call('getLiveState', [S.token], function (res) {
+        S.polling = false;
+        if (tokenAtStart !== S.token || !res) return;
+        if (res.authRequired || res.code === 'AUTH') { doLogout('Session expired. Please log in again.'); return; }
+        if (res.error || !res.serverNow) return;
+        S.netFails = 0; updateNet(); if (S.queue.length) flushQueue();
+        if (!applyState(res, true)) return;
+        // Auto logout rules (live poll results only)
+        if (!res.isShiftActive) S.closedPolls++; else S.closedPolls = 0;
+        if (S.sawActive && S.closedPolls >= 1) { doLogout('Shift ended. You have been logged out.'); return; }
+        var emps = res.employees || [];
+        if (emps.length > 0 && !findMe(res)) S.notFoundPolls++; else S.notFoundPolls = 0;
+        if (S.notFoundPolls >= 3) doLogout('Your profile was removed from the roster.');
+      }, function () { S.polling = false; S.netFails++; updateNet(); });
+    }
+    function pollLoop() { pollOnce(); setTimeout(pollLoop, document.hidden ? 25000 : 5000); }
+
+    // ---------- state helpers ----------
+    function findMe(st) {
+      var l = lc(S.empId); var list = (st && st.employees) || [];
+      for (var i = 0; i < list.length; i++) if (lc(list[i].id) === l) return list[i];
+      return null;
+    }
+    function stationName(st, code) { var d = st.taskDefinitions && st.taskDefinitions[code]; return d && d.name ? d.name : code; }
+    function stationBg(st, code) { var d = st.taskDefinitions && st.taskDefinitions[code]; return d && d.headerBg ? d.headerBg : 'bg-slate-600'; }
+    function curStation(a, plan) { return (a && (a.activeStation && a.activeStation !== 'None' ? a.activeStation : a.task1 && a.task1 !== 'None' ? a.task1 : '')) || plan; }
+    function fmtMMSS(ms) { ms = Math.max(0, ms); var s = Math.floor(ms / 1000); var m = Math.floor(s / 60); s = s % 60; return (m < 10 ? '0' : '') + m + ':' + (s < 10 ? '0' : '') + s; }
+    function setIfChanged(el, html) { if (el._h !== html) { el._h = html; el.innerHTML = html; } }
+    function setKeepInputs(el, html) {
+      if (el._h === html) return;
+      var keep = {}; Array.prototype.forEach.call(el.querySelectorAll('[data-keep]'), function (i) { keep[i.getAttribute('data-keep')] = i.value; });
+      el._h = html; el.innerHTML = html;
+      Array.prototype.forEach.call(el.querySelectorAll('[data-keep]'), function (i) { var k = i.getAttribute('data-keep'); if (keep[k] != null) i.value = keep[k]; });
+    }
+    function fillSelect(sel, html) {
+      if (sel._h === html) return;
+      var v = sel.value; sel._h = html; sel.innerHTML = html;
+      if (v) { for (var i = 0; i < sel.options.length; i++) if (sel.options[i].value === v) { sel.value = v; break; } }
+    }
+
+    // ---------- render ----------
+    function render() {
+      var st = S.state;
+      var loggedIn = !!S.token;
+      show('loginScreen', !loggedIn);
+      show('navTabs', loggedIn); show('switchUserBtn', loggedIn);
+      refreshAlertChip();
+      if (!loggedIn) { show('myTaskSection', false); show('allTasksSection', false); $('shiftStatusDot').className = 'w-1.5 h-1.5 rounded-full bg-slate-500'; $('shiftStatusLabel').textContent = 'Shift A • Please log in'; renderLoginList(); return; }
+      if (!st) { show('myTaskSection', false); show('allTasksSection', false); $('shiftStatusLabel').textContent = 'Shift A • Connecting...'; return; }
+
+      var active = !!st.isShiftActive;
+      $('shiftStatusDot').className = 'w-1.5 h-1.5 rounded-full ' + (active ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400');
+      $('shiftStatusLabel').textContent = 'Shift A • ' + (active ? 'Active (12 AM - 9 AM)' : 'Closed (view only)');
+
+      $('tabMyTaskBtn').className = 'flex-1 py-1.5 rounded-lg text-xs font-black ' + (S.tab === 'mytask' ? 'bg-sky-700 text-white' : 'text-slate-400 bg-slate-900 border border-slate-800');
+      $('tabAllTasksBtn').className = 'flex-1 py-1.5 rounded-lg text-xs font-black ' + (S.tab === 'alltasks' ? 'bg-sky-700 text-white' : 'text-slate-400 bg-slate-900 border border-slate-800');
+      show('myTaskSection', S.tab === 'mytask'); show('allTasksSection', S.tab === 'alltasks');
+
+      var me = findMe(st);
+      if (S.tab === 'alltasks') renderAllTasks(st, me);
+      if (!me) return;
+      if (S.tab === 'mytask') renderMyTask(st, me, active);
+    }
+
+    function renderMyTask(st, me, active) {
+      var realDay = st.currentRealDay;
+      var plan = (me.plan && me.plan[realDay]) || 'PK';
+      var a = (st.assignments || {})[me.id] || {};
+      var att = (st.attendance || {})[me.id] || 'Present';
+      var station = curStation(a, plan);
+      var isTL = plan === 'TL' || a.task1 === 'TL' || a.activeStation === 'TL';
+      var isFL = plan === 'FL' || a.task1 === 'FL' || a.activeStation === 'FL';
+      var present = att === 'Present';
+      var emps = st.employees || [];
+
+      // closed banner
+      show('closedBanner', !active);
+      if (!active) $('closedBanner').textContent = 'Shift is closed. View only - break, help and requests are disabled.';
+
+      // off day banner
+      var ob = $('offDayBanner');
+      if (present) show('offDayBanner', false);
+      else {
+        var cfg = { WO: ['Scheduled Rest Day', 'Enjoy your day off.', 'border-slate-600 bg-slate-800 text-slate-200'],
+          LV: ['On Leave', 'You are marked on leave today.', 'border-sky-700 bg-sky-950/60 text-sky-200'],
+          AB: ['Marked Absent', 'Speak to your team lead if this is a mistake.', 'border-rose-700 bg-rose-950/60 text-rose-200'],
+          EO: ['Early out recorded', 'You have left for the day.', 'border-amber-700 bg-amber-950/60 text-amber-200'] }[att] || ['Off duty', '', 'border-slate-600 bg-slate-800 text-slate-200'];
+        ob.className = 'p-3.5 rounded-2xl border text-center ' + cfg[2];
+        $('offDayTitle').textContent = cfg[0]; $('offDaySub').textContent = cfg[1]; show('offDayBanner', true);
+      }
+
+      // summon
+      var summon = (st.activeSummons || []).filter(function (s) { return lc(s.targetId) === lc(me.id); })[0];
+      show('mySummonAlarmBanner', !!summon);
+      if (summon) {
+        $('summonTlSenderName').textContent = (summon.tlName || 'Supervisor') + ' is calling you';
+        $('summonMessageText').textContent = summon.message || '';
+        if (S.lastSummon !== summon.id) { S.lastSummon = summon.id; buzz(4); notify('Supervisor calling you', summon.message || ''); }
+      }
+
+      // line move alert
+      var mv = a.moveNote;
+      var showMove = mv && mv.id && sget('pda_move_seen') !== mv.id;
+      show('moveAlertBanner', !!showMove);
+      if (showMove) {
+        $('moveAlertText').textContent = mv.text;
+        if (S.lastMoveBuzz !== mv.id) { S.lastMoveBuzz = mv.id; buzz(2); notify('Line update', mv.text); }
+      }
+
+      renderAnnouncements(st, me, station, present);
+      renderBroadcast(st, me, present);
+
+      // help calls
+      var helps = st.activeHelpRequests || [];
+      var openFl = isFL && !isTL;
+      if (openFl && helps.length) {
+        show('flHelpAlertSection', true);
+        $('flHelpBadge').textContent = helps.length;
+        setIfChanged($('flHelpListContainer'), sortHelps(helps).map(function (r) { return helpCard(r, false, false); }).join(''));
+      } else show('flHelpAlertSection', false);
+      var actLog = (st.helpLog || []).filter(function (h) { return h.type !== 'raised'; }).slice(0, 4);
+      show('helpActivityBox', (isFL || isTL) && actLog.length > 0);
+      if ((isFL || isTL) && actLog.length) setIfChanged($('helpActivityList'), helpActivityHtml(actLog));
+      if ((isFL || isTL) && present) {
+        // buzz on NEW calls only (first poll after login primes the list silently)
+        var fresh = false;
+        helps.forEach(function (r) { if (!S.seenHelp[r.id]) { S.seenHelp[r.id] = true; if (S.helpPrimed) fresh = true; } });
+        S.helpPrimed = true;
+        if (fresh) { buzz(4); notify('Help call', 'A colleague needs help'); }
+        helps.forEach(function (r) { if (r.escalated && !S.seenEsc[r.id]) { S.seenEsc[r.id] = true; buzz(7); notify('Help call NOT accepted', r.empName + ' @ ' + r.location + ' is waiting'); } });
+      }
+
+      show('tlCommandDeckSection', isTL);
+      show('regularCcViewSection', !isTL);
+      if (isTL) renderTL(st, me, helps, emps, active);
+      else renderCC(st, me, a, att, station, plan, active, present);
+
+      // schedule
+      $('myWeeklyScheduleGrid').innerHTML = DAYS.map(function (d) {
+        var c = (me.plan && me.plan[d]) || '-';
+        var today = d === realDay;
+        return '<div class="p-1 rounded-xl border flex flex-col items-center ' + (today ? 'bg-sky-950 border-sky-400' : 'bg-slate-900 border-slate-700') + '">' +
+          '<span class="text-[9px] text-slate-400">' + d + '</span>' +
+          '<span class="text-[10px] font-black px-1.5 py-0.5 rounded text-white mt-0.5 ' + (c === 'WO' ? 'bg-slate-700' : 'bg-sky-700') + '">' + esc(c) + '</span></div>';
+      }).join('');
+    }
+
+    function helpActor(h) { return h.byRole === 'Dashboard' ? 'Supervisor (Dashboard)' : esc(h.by) + ' (' + esc(h.byRole) + ')'; }
+    function helpActivityHtml(log) {
+      var ic = { accepted: '&#129309;', dispatched: '&#128694;', cleared: '&#9989;' };
+      return log.map(function (h) {
+        var where = esc(h.empName) + ' @ ' + esc(h.location);
+        var t = h.type === 'accepted' ? helpActor(h) + ' accepted ' + where
+          : h.type === 'dispatched' ? helpActor(h) + ' sent ' + esc(h.helperName || 'a helper') + ' to ' + where
+          : helpActor(h) + ' cleared ' + where;
+        return '<div class="text-[11px] font-bold text-slate-200 bg-slate-950/70 border ' + (h.type === 'cleared' ? 'border-emerald-700' : 'border-sky-700') + ' rounded-xl px-2.5 py-1.5">' +
+          (ic[h.type] || '') + ' ' + t + ' <span class="text-slate-500 font-semibold">&bull; ' + esc(h.timeStr) + '</span></div>';
+      }).join('');
+    }
+
+    function helpCard(r, tl, canSend) {
+      var accepted = r.status === 'accepted';
+      var who = r.helperName ? (esc(r.helperName) + ' is coming') : (accepted ? ('Accepted by ' + esc(r.acceptedBy) + (r.acceptedByRole ? ' (' + esc(r.acceptedByRole) + ')' : '') + (r.acceptedAtStr ? ' at ' + esc(r.acceptedAtStr) : '')) : '');
+      var mineNearest = !accepted && r.nearestFlId && lc(r.nearestFlId) === lc(S.empId);
+      var d = r.flDist ? r.flDist[S.empId] : null;
+      var dist = '';
+      if (d != null) dist = d === 0 ? T('same_aisle') : d + T('aisles_away');
+      var near = '';
+      if (!accepted && mineNearest) near = '<span class="text-[10px] font-black text-slate-950 bg-amber-400 rounded px-1.5 py-0.5">' + T('nearest_you') + '</span>';
+      else if (!accepted && r.nearestFlName) near = '<span class="text-[10px] font-bold text-slate-400">' + T('nearest_other') + esc(r.nearestFlName) + '</span>';
+      var esc3 = !!r.escalated;
+      var mins = Math.floor((r.waitMs || 0) / 60000);
+      var btns = '';
+      if (!accepted) btns += '<button data-act="acceptHelp" data-id="' + esc(r.id) + '" class="px-2.5 py-1.5 bg-amber-500 text-slate-950 font-black rounded-lg text-[10px]">' + T('accept') + '</button>';
+      if (tl) btns += '<button data-act="openSendHelper" data-id="' + esc(r.id) + '" class="px-2.5 py-1.5 bg-sky-700 text-white font-black rounded-lg text-[10px]">' + T('send_helper') + '</button>';
+      btns += '<button data-act="clearHelp" data-id="' + esc(r.id) + '" class="px-2.5 py-1.5 bg-emerald-700 text-white font-black rounded-lg text-[10px]">' + T('clear') + '</button>';
+      return '<div class="p-3 bg-slate-950/90 border-2 ' + (esc3 ? 'border-rose-400 animate-pulse-alert' : accepted ? 'border-emerald-600' : mineNearest ? 'border-amber-400' : 'border-rose-500') + ' rounded-2xl text-xs">' +
+        '<div class="flex items-start justify-between gap-2"><div class="min-w-0"><div class="font-black text-white truncate">' + esc(r.empName) + (esc3 ? ' <span class="text-rose-300">&#9200; ' + T('waiting') + mins + 'm</span>' : '') + '</div>' +
+        '<div class="text-[11px] font-bold text-amber-300">&#128205; ' + esc(r.location) + ' (' + esc(r.station) + ') &bull; ' + esc(r.timeStr) + (dist ? ' &bull; ' + esc(dist) : '') + '</div>' +
+        (r.reason ? '<div class="mt-1"><span class="text-[10px] font-black text-rose-100 bg-rose-700/70 rounded px-1.5 py-0.5">&#9888; ' + esc(T('r_' + r.reason)) + '</span></div>' : '') +
+        (r.imageUrl ? '<button data-act="photoOpen" data-id="' + esc(r.imageUrl) + '" class="mt-1.5 block"><img src="' + esc(r.imageUrl) + '" alt="" class="h-20 rounded-lg border border-slate-600 object-cover"><span class="text-[9px] text-sky-300 font-bold">&#128247; Tap to enlarge</span></button>' : '') +
+        (near ? '<div class="mt-1">' + near + '</div>' : '') +
+        (who ? '<div class="text-[10px] font-black text-emerald-400 mt-0.5">&#10004; ' + who + '</div>' : '') + '</div></div>' +
+        '<div class="flex flex-wrap gap-1.5 mt-2">' + btns + '</div></div>';
+    }
+    // closest-to-me first; waiting-longest/escalated calls on top
+    function sortHelps(list) {
+      return list.slice().sort(function (x, y) {
+        if (!!x.escalated !== !!y.escalated) return x.escalated ? -1 : 1;
+        var dx = x.flDist && x.flDist[S.empId] != null ? x.flDist[S.empId] : 999, dy = y.flDist && y.flDist[S.empId] != null ? y.flDist[S.empId] : 999;
+        return dx - dy || (x.timestamp - y.timestamp);
+      });
+    }
+
+    function renderAnnouncements(st, me, station, present) {
+      var anns = (st.announcements || []).filter(function (an) {
+        if (an.ended) return false;
+        if (lc(an.senderId) === lc(me.id)) return false;
+        if (an.acks && an.acks[me.id]) return false;
+        if (!present) return false;
+        return an.target === 'ALL' || an.target === station;
+      });
+      var now = Date.now();
+      var buzzNow = false;
+      anns.forEach(function (an) {
+        var last = S.lastAnnBuzz[an.id] || 0;
+        if (!last || now - last >= 30000) { S.lastAnnBuzz[an.id] = now; buzzNow = true; }
+      });
+      if (buzzNow) { buzz(3); notify('Announcement', anns[0].message); }
+      setIfChanged($('announcementBannerBox'), anns.map(function (an) {
+        return '<div class="bg-indigo-900 border-2 border-indigo-300 text-white p-3.5 rounded-2xl shadow-xl animate-pulse-alert">' +
+          '<div class="text-[10px] font-black uppercase text-indigo-200">&#128226; Announcement from ' + esc(an.sender) + ' &bull; ' + (an.target === 'ALL' ? 'Everyone' : esc(an.target)) + '</div>' +
+          '<p class="text-sm font-bold mt-1 break-words">' + esc(an.message) + '</p>' +
+          '<button data-act="ackAnn" data-id="' + esc(an.id) + '" class="mt-2.5 w-full py-2 bg-emerald-600 text-white font-black rounded-xl text-xs active:scale-95">&#10004; Got it</button></div>';
+      }).join(''));
+    }
+
+    function renderCC(st, me, a, att, station, plan, active, present) {
+      $('profileName').textContent = me.name; $('profileId').textContent = me.id;
+      $('profilePlanBadge').textContent = plan;
+      var badge = $('activeStationBadge');
+      badge.textContent = present ? station : '-';
+      badge.className = 'text-xs font-black px-2.5 py-1 rounded-lg text-white ' + (present ? stationBg(st, station) : 'bg-slate-600');
+      $('activeStationName').textContent = present ? stationName(st, station) : 'Off duty';
+      var role = 'Primary duty station';
+      if (a.isHelping) role = 'Deployed as helper (base ' + a.originalStation + ')';
+      else if (a.swappedFrom) role = 'Covering (planned ' + a.swappedFrom + ')';
+      $('activeStationRole').textContent = present ? role : '';
+
+      var canAct = active && present;
+      var onBreak = !!a.onBreak;
+      $('breakDurLabel').textContent = '(' + (st.breakDurationSetting || 50) + ' min)';
+      show('breakStartBox', !onBreak && a.breakStatus !== 'completed');
+      show('breakActiveBox', onBreak);
+      show('breakDoneBox', !onBreak && a.breakStatus === 'completed');
+      $('startBreakBtn').disabled = !canAct;
+      $('endBreakBtn').disabled = !active;
+      var bs = $('breakStatusBadge');
+      bs.textContent = onBreak ? 'ON BREAK' : (a.breakStatus === 'completed' ? 'COMPLETED' : 'PENDING');
+      tickBreak();
+
+      $('requestHelpBtn').disabled = !canAct || onBreak;
+      $('helpSectionCard').style.opacity = (!canAct || onBreak) ? '0.45' : '1';
+      var nsLocked = !canAct || onBreak;
+      $('nsAwbInput').disabled = nsLocked; $('nsSearchBtn').disabled = nsLocked;
+      $('nsSectionCard').style.opacity = nsLocked ? '0.5' : '1';
+
+      var myHelp = (st.activeHelpRequests || []).filter(function (r) { return lc(r.empId) === lc(me.id); })[0];
+      if (S.myHelpWas && !myHelp) {
+        var done = (st.helpLog || []).filter(function (h) { return h.helpId === S.myHelpWas && h.type === 'cleared'; })[0];
+        if (done && lc(done.by) !== lc(me.name)) { toast('Your help call was cleared by ' + (done.byRole === 'Dashboard' ? 'Supervisor' : done.by + ' (' + done.byRole + ')')); buzz(1); }
+      }
+      S.myHelpWas = myHelp ? myHelp.id : '';
+      show('myHelpBanner', !!myHelp);
+      if (myHelp) {
+        var t;
+        if (myHelp.helperName) t = myHelp.helperName + ' is coming to ' + myHelp.location;
+        else if (myHelp.status === 'accepted') t = 'Accepted by ' + myHelp.acceptedBy + (myHelp.acceptedByRole ? ' (' + myHelp.acceptedByRole + ')' : '') + ' - on the way (' + myHelp.location + ')';
+        else t = 'Waiting for a Floor Lead (' + myHelp.location + ')...';
+        $('myHelpText').textContent = t;
+      }
+
+      var lb = (st.sheetLeaderboard || []).filter(function (x) { return lc(x.empName) === lc(me.name); })[0];
+      $('myNsPersonalScore').textContent = 'My today: ' + (lb ? lb.awbs : 0) + ' AWBs • ' + (lb ? lb.totalCount : 0) + ' Qty';
+      var bm = (st.breakMins || {})[me.id] || 0, hc = (st.helpCount || {})[me.id] || 0;
+      setIfChanged($('myScoreBox'), [[lb ? lb.awbs : 0, 'sc_awb', 'text-indigo-300'], [lb ? lb.totalCount : 0, 'sc_qty', 'text-emerald-300'], [bm + 'm', 'sc_brk', 'text-amber-300'], [hc, 'sc_help', 'text-rose-300']].map(function (c) {
+        return '<div class="bg-slate-900 border border-slate-700 rounded-xl py-2"><div class="text-base font-black ' + c[2] + '">' + esc(c[0]) + '</div><div class="text-[9px] font-bold text-slate-400 uppercase">' + T(c[1]) + '</div></div>';
+      }).join(''));
+      loadYesterday(); renderYesterday(); loadDevices(false); renderDevices();
+      var mine = (st.nonSortRequests || []).filter(function (r) { return lc(r.empId) === lc(me.id); });
+      mine.forEach(function (r) { if (r.status === 'ready' && !S.lastReadyNs[r.id]) { S.lastReadyNs[r.id] = true; buzz(2); } });
+      setIfChanged($('myActiveNsRequestsBox'), mine.map(function (r) {
+        if (r.status === 'pending') {
+          return '<div class="p-2.5 bg-indigo-950/60 border border-indigo-800 rounded-xl flex items-center justify-between text-xs"><div><div class="font-mono font-bold text-indigo-300">' + esc(r.awb) + '</div><div class="text-[10px] text-slate-400">Waiting for the TL count...</div></div>' +
+            '<div class="flex items-center gap-2"><span class="text-[10px] font-black text-amber-400 animate-pulse">Pending</span><button data-act="nsCancelMine" data-id="' + esc(r.id) + '" class="px-2 py-1 bg-slate-800 text-slate-300 rounded-lg text-[10px] font-bold">Cancel</button></div></div>';
+        }
+        return '<div class="p-3 bg-emerald-950/80 border-2 border-emerald-600 rounded-xl flex items-center justify-between gap-2 text-xs"><div><div class="font-mono font-bold text-white">' + esc(r.awb) + '</div>' +
+          '<div class="text-xs font-black text-emerald-300">Count: ' + esc(r.count) + ' Qty</div></div>' +
+          '<button data-act="nsConfirm" data-id="' + esc(r.id) + '" class="px-3 py-1.5 bg-emerald-600 text-white font-black rounded-lg text-[11px] active:scale-95"' + (active ? '' : ' disabled') + '>&#10004; Confirm putaway</button></div>';
+      }).join(''));
+    }
+
+    // ---------- productivity screen: me / top 5 per task / everyone, any date ----------
+    var P = { date: '', tab: 'me', sort: 'qty', q: '', open: '', data: null, period: 7, board: null };
+    function okCls(ok) { return ok === false ? 'text-rose-400' : ok === true ? 'text-emerald-300' : 'text-slate-200'; }
+    function pretty(t) { return String(t || '').replace(/_/g, ' '); }
+    function hh(h) { return (h < 10 ? '0' : '') + h + ':00'; }
+    function shiftDate(d, n) { var x = new Date(d + 'T00:00:00Z'); x.setUTCDate(x.getUTCDate() + n); return x.toISOString().slice(0, 10); }
+    function openProd() {
+      P.date = ''; P.tab = 'me'; P.open = ''; P.q = ''; P.data = null; $('prodSearch').value = '';
+      show('prodModal', true); lockScroll(); loadProd();
+    }
+    function loadProd(silent) {
+      if (!silent) { P.data = null; renderProd(); }
+      var d = P.date;
+      call('getProductivityReport', [S.token, d, false], function (res) {
+        if (d !== P.date) return;
+        P.data = res || { success: false };
+        if (res && res.date) { P.date = res.date; $('prodDate').value = res.date; }
+        renderProd();
+        if (P.tab === 'board') loadBoard(true);
+      }, function () { if (!silent || !P.data) { P.data = { success: false, error: 'Network problem.' }; renderProd(); } });
+    }
+    function loadBoard(silent) {
+      if (!silent) { P.board = null; renderProd(); }
+      var key = P.date + '|' + P.period;
+      call('getProductivityBoard', [S.token, P.date, P.period, false], function (res) {
+        if (key !== P.date + '|' + P.period) return;
+        P.board = res || { success: false }; renderProd();
+      }, function () { if (!silent || !P.board) { P.board = { success: false, error: 'Network problem.' }; renderProd(); } });
+    }
+    function hourChips(list, showBy, gaps) {
+      var items = list.map(function (x) { return { h: x.h, x: x }; }).concat((gaps || []).map(function (g) { return { h: g, gap: true }; })).sort(function (p, q) { return p.h - q.h; });
+      return items.map(function (it) {
+        if (it.gap) return '<div class="border border-dashed border-rose-500 rounded-md px-2 py-1 text-[11px] text-rose-400"><b>' + hh(it.h) + '</b> <span class="font-black">gap</span></div>';
+        var x = it.x;
+        var by = showBy && x.by && Object.keys(x.by).length > 1 ? '<div class="text-[9px] text-slate-500">' + Object.keys(x.by).map(function (t) { return esc(pretty(t)) + ' ' + esc(x.by[t]); }).join(' &middot; ') + '</div>' : '';
+        return '<div class="bg-slate-900 border border-slate-700 rounded-md px-2 py-1 text-[11px]"><b class="text-slate-200">' + hh(x.h) + '</b> <span class="font-black text-sky-300">' + esc(x.qty) + '</span>' + by + '</div>';
+      }).join('');
+    }
+    function prodRow(k, rank, name, qty, hours, tph, detail, mine, ok, badge) {
+      var open = P.open === k;
+      return '<div class="border ' + (mine ? 'border-sky-500' : 'border-slate-700') + ' rounded-xl bg-slate-900/80 overflow-hidden">' +
+        '<button data-act="prodOpen" data-k="' + esc(k) + '" class="w-full flex items-center gap-2 px-2.5 py-2 text-left"><span class="w-5 text-center font-black text-slate-500">' + rank + '</span>' +
+        '<span class="flex-1 min-w-0 truncate font-bold text-white">' + esc(name) + (mine ? ' <span class="text-sky-300">(you)</span>' : '') + (badge || '') + '</span>' +
+        '<span class="font-black text-sky-300">' + esc(qty) + '</span><span class="w-9 text-right text-slate-400">' + hours + 'h</span>' +
+        '<span class="w-14 text-right font-black ' + okCls(ok == null ? true : ok) + '">' + tph + '<span class="text-[8px] text-slate-500"> TPH</span></span></button>' +
+        (open ? '<div class="border-t border-slate-700 px-3 py-2">' + detail + '</div>' : '') + '</div>';
+    }
+    function personDetail(p) {
+      return '<div class="space-y-0.5 mb-2">' + p.types.map(function (t) { return '<div class="flex justify-between text-[11px]"><span class="capitalize">' + esc(pretty(t.type)) + (t.target ? ' <span class="text-slate-500">(target ' + t.target + '/h)</span>' : '') + '</span><span><b class="text-white">' + esc(t.qty) + '</b> in ' + t.hours + 'h &middot; <b class="' + okCls(t.ok == null ? true : t.ok) + '">' + t.tph + '</b> TPH</span></div>'; }).join('') + '</div>' +
+        ((p.gaps || []).length ? '<div class="text-[11px] font-bold text-rose-400 mb-2">&#9888; No entries at ' + p.gaps.map(hh).join(', ') + '</div>' : '') +
+        '<div class="text-[10px] font-bold uppercase text-slate-500 mb-1">Hour by hour</div><div class="flex flex-wrap gap-1.5">' + hourChips(p.perHour, true, p.gaps) + '</div>';
+    }
+    function boardCol(title, list, kind) {
+      return '<div class="border border-slate-700 rounded-2xl p-2.5 bg-slate-800/60"><div class="text-sm font-black text-white mb-1.5">' + title + '</div><div class="space-y-1">' +
+        (list.length ? list.map(function (p, i) {
+          var mine = lc(p.id) === lc(S.empId);
+          return '<div class="flex items-center gap-2 px-2.5 py-1.5 rounded-xl border ' + (mine ? 'border-sky-500 bg-sky-950/40' : i === 0 ? 'border-amber-500/70 bg-amber-950/20' : 'border-slate-700 bg-slate-900/70') + '">' +
+            '<span class="w-6 text-center">' + (['&#129351;', '&#129352;', '&#129353;'][i] || '<span class="text-[11px] font-black text-slate-500">' + (i + 1) + '</span>') + '</span>' +
+            '<span class="flex-1 min-w-0 truncate font-bold text-white">' + esc(p.name) + (mine ? ' <span class="text-sky-300">(you)</span>' : '') + '<div class="text-[9px] font-normal text-slate-500">' + p.days + 'd &middot; ' + p.hours + 'h &middot; ' + esc(p.tph) + ' TPH</div></span>' +
+            '<span class="font-black ' + (kind === 'ach' ? okCls(p.ach >= 1) : 'text-sky-300') + '">' + (kind === 'ach' ? Math.round(p.ach * 100) + '%' : esc(p.total)) + '</span></div>';
+        }).join('') : '<div class="italic text-slate-500">Not enough data yet.</div>') + '</div></div>';
+    }
+    function renderProd() {
+      ['me', 'top', 'all', 'board'].forEach(function (t) { var b = $('prodTab' + t.charAt(0).toUpperCase() + t.slice(1)); b.className = 'py-1.5 rounded-lg border ' + (P.tab === t ? 'bg-sky-600 border-sky-300 text-white' : 'bg-slate-800 border-slate-600 text-slate-300'); });
+      ['Qty', 'Tph'].forEach(function (t) { $('prodSort' + t).className = 'px-2 py-1 rounded-lg border text-[10px] font-black ' + (P.sort === t.toLowerCase() ? 'bg-emerald-700 border-emerald-300 text-white' : 'bg-slate-800 border-slate-600 text-slate-300'); });
+      show('prodSortRow', P.tab === 'top'); show('prodSearch', P.tab === 'all'); show('prodPeriodRow', P.tab === 'board');
+      [7, 30].forEach(function (n) { $('prodPer' + n).className = 'px-2.5 py-1 rounded-lg border ' + (P.period === n ? 'bg-emerald-700 border-emerald-300 text-white' : 'bg-slate-800 border-slate-600 text-slate-300'); });
+      var body = $('prodBody'), d = P.data;
+      if (P.tab === 'board') {
+        var bd = P.board;
+        if (!bd) { body.innerHTML = '<div class="text-center text-slate-500 py-6">...</div>'; return; }
+        if (!bd.success) { body.innerHTML = '<div class="text-center text-amber-300 py-4">' + esc(bd.error || 'Could not load productivity.') + '</div>'; return; }
+        if (!bd.people) { body.innerHTML = '<div class="text-center italic text-slate-500 py-6">No productivity data in this period.</div>'; return; }
+        var myRank = 0, myRow = null; (bd.all || []).forEach(function (p, i) { if (lc(p.id) === lc(S.empId)) { myRank = i + 1; myRow = p; } });
+        body.innerHTML = '<div class="text-[10px] text-slate-500 text-center">' + esc(bd.from) + ' &rarr; ' + esc(bd.to) + ' &middot; ' + bd.people + ' people</div>' +
+          (myRow ? '<div class="bg-sky-950/50 border border-sky-600 rounded-2xl p-2.5 text-center"><div class="text-[10px] font-bold uppercase text-slate-400">Your rank</div><div class="text-lg font-black text-sky-300">#' + myRank + ' <span class="text-[11px] text-slate-400">of ' + bd.people + '</span></div><div class="text-[10px] text-slate-400">' + esc(myRow.total) + ' units &middot; ' + esc(myRow.tph) + ' TPH</div></div>' : '') +
+          boardCol('&#127942; Most units', bd.topQty, 'qty') + boardCol('&#127919; Best vs target', bd.topAch, 'ach');
+        return;
+      }
+      if (!d) { body.innerHTML = '<div class="text-center text-slate-500 py-6">...</div>'; return; }
+      if (!d.success) { body.innerHTML = '<div class="text-center text-amber-300 py-4">' + esc(d.error || 'Could not load productivity.') + '</div>'; return; }
+      if (!d.found) { body.innerHTML = '<div class="text-center italic text-slate-500 py-6">No productivity data for ' + esc(d.date) + '.</div>'; return; }
+      var me = null; d.people.forEach(function (p) { if (lc(p.id) === lc(S.empId)) me = p; });
+      var h = '';
+      if (P.tab === 'me') {
+        if (!me) h = '<div class="text-center italic text-slate-500 py-6">No productivity found for your ID on ' + esc(d.date) + '.</div>';
+        else h = '<div class="bg-slate-900 border border-sky-600 rounded-2xl p-3"><div class="flex items-end justify-between mb-2"><div><div class="text-2xl font-black text-sky-300">' + esc(me.total) + '</div><div class="text-[10px] font-bold text-slate-400 uppercase">Total units</div></div>' +
+          '<div class="text-right"><div class="text-lg font-black text-emerald-300">' + me.tph + ' <span class="text-[10px] text-slate-400">TPH</span></div><div class="text-[10px] text-slate-400">' + me.hours + ' active hours</div></div></div>' + personDetail(me) + '</div>';
+      } else if (P.tab === 'top') {
+        h = d.tasks.map(function (t) {
+          var list = P.sort === 'qty' ? t.topQty : t.topTph;
+          var tg = t.target ? '<div class="text-[10px] text-slate-400 mb-1.5">Target ' + t.target + '/hr &middot; <b class="' + (t.onTarget === t.people ? 'text-emerald-300' : 'text-rose-400') + '">' + t.onTarget + ' of ' + t.people + ' on target</b></div>' : '';
+          return '<div class="border border-slate-700 rounded-2xl p-2.5 bg-slate-800/60"><div class="flex items-center justify-between mb-1.5"><b class="text-sm text-white capitalize">' + esc(pretty(t.type)) + '</b><span class="text-[10px] text-slate-400">' + esc(t.total) + ' units &middot; ' + t.people + ' people</span></div>' + tg + '<div class="space-y-1">' +
+            (list.length ? list.map(function (p, i) { return prodRow(t.type + p.id, i + 1, p.name, p.qty, p.hours, p.tph, '<div class="text-[10px] font-bold uppercase text-slate-500 mb-1">Hour by hour</div><div class="flex flex-wrap gap-1.5">' + hourChips(p.perHour, false) + '</div>', lc(p.id) === lc(S.empId), p.ok); }).join('') : '<div class="italic text-slate-500">Nobody with 2+ active hours on this task.</div>') + '</div></div>';
+        }).join('');
+      } else {
+        var q = P.q.trim().toLowerCase();
+        var list = d.people.filter(function (p) { return !q || (p.name + ' ' + p.id).toLowerCase().indexOf(q) >= 0; });
+        h = list.length ? list.map(function (p, i) { return prodRow('p' + p.id, i + 1, p.name, p.total, p.hours, p.tph, personDetail(p), lc(p.id) === lc(S.empId), p.ok, (p.ach != null ? ' <span class="text-[10px] font-black ' + okCls(p.ok) + '">' + Math.round(p.ach * 100) + '%</span>' : '') + ((p.gaps || []).length ? ' <span class="text-[10px] font-black text-rose-400">&#9888; ' + p.gaps.length + ' gap</span>' : '')); }).join('') : '<div class="italic text-slate-500 text-center py-4">No match.</div>';
+      }
+      body.innerHTML = h;
+    }
+
+    // ---------- which PDA(s) this CC holds (from the PDA issue/return log sheet) ----------
+    function loadDevices(force) {
+      if (!S.token || S.devLoading) return;
+      if (!force && S.devFor === S.empId && Date.now() - S.devAt < 2 * 60000) return;
+      S.devLoading = true; var forId = S.empId;
+      call('pdaGetMyDevices', [S.token, S.empId], function (res) {
+        S.devLoading = false; if (forId !== S.empId) return;
+        S.devFor = forId; S.devAt = Date.now(); S.devData = res || { success: false }; renderDevices();
+      }, function () { S.devLoading = false; S.devAt = Date.now() - 100000; });
+    }
+    function renderDevices() {
+      var box = $('devBox'); if (!box) return;
+      var d = S.devData;
+      if (!d) { setIfChanged(box, '...'); return; }
+      if (!d.success) { setIfChanged(box, '<span class="text-amber-300">' + T('dev_err') + '</span>'); return; }
+      if (!d.devices.length) { setIfChanged(box, '<span class="italic">' + T('dev_none') + '</span>'); return; }
+      setIfChanged(box, d.devices.map(function (x) {
+        var h = Math.floor(x.mins / 60), m = x.mins % 60;
+        return '<div class="flex items-center justify-between gap-2 bg-slate-950/80 border border-violet-700/60 rounded-xl px-3 py-2 mb-1.5"><div><div class="text-sm font-black text-violet-200 font-mono">' + esc(x.barcode) + '</div>' +
+          '<div class="text-[10px] text-slate-400">' + T('dev_since') + ' ' + esc(x.sinceStr) + ' &bull; ' + h + 'h ' + m + 'm</div></div><div class="flex flex-col items-end gap-1">' +
+          (x.second ? '<span class="text-[9px] font-black bg-amber-500 text-slate-950 rounded px-1.5 py-0.5">' + T('dev_second') + '</span>' : '') +
+          (x.swap ? '<span class="text-[9px] font-black bg-sky-600 text-white rounded px-1.5 py-0.5">' + T('dev_swap') + '</span>' : '') + '</div></div>';
+      }).join(''));
+    }
+
+    // ---------- yesterday's productivity (from the productivity export sheet) ----------
+    function loadYesterday() {
+      if (!S.token || S.yLoading) return;
+      if (S.yFor === S.empId && Date.now() - S.yAt < 10 * 60000) return;
+      S.yLoading = true;
+      var forId = S.empId;
+      call('pdaGetProductivity', [S.token, S.empId], function (res) {
+        S.yLoading = false;
+        if (forId !== S.empId) return;
+        S.yFor = forId; S.yAt = Date.now(); S.yData = res || { success: false };
+        renderYesterday();
+      }, function () { S.yLoading = false; S.yAt = Date.now() - 9 * 60000; });
+    }
+    function renderYesterday() {
+      var box = $('yBox'); if (!box) return;
+      var y = S.yData;
+      if (!y) { setIfChanged(box, '...'); $('yDateLabel').textContent = ''; return; }
+      $('yDateLabel').textContent = y.date || '';
+      if (!y.success) { setIfChanged(box, '<span class="text-amber-300">' + T('y_err') + '</span>'); return; }
+      if (!y.found) { setIfChanged(box, '<span class="italic">' + T('y_none') + '</span>'); return; }
+      var types = Object.keys(y.types || {}).sort(function (a, b) { return y.types[b] - y.types[a]; });
+      var maxH = 1; (y.hours || []).forEach(function (h) { if (h.qty > maxH) maxH = h.qty; });
+      var h = '<div class="flex items-end justify-between"><div><div class="text-2xl font-black text-sky-300">' + esc(y.total) + '</div><div class="text-[10px] font-bold text-slate-400 uppercase">' + T('y_total') + '</div></div>' +
+        '<div class="flex flex-wrap gap-1 justify-end max-w-[60%]">' + types.map(function (t) { return '<span class="text-[10px] font-black bg-slate-900 border border-slate-700 rounded px-1.5 py-0.5 text-slate-200">' + esc(t.replace(/_/g, ' ')) + ': ' + esc(y.types[t]) + '</span>'; }).join('') + '</div></div>';
+      if ((y.hours || []).length) h += '<div class="flex items-end gap-0.5 h-12 mt-2.5">' + y.hours.map(function (x) { return '<div class="flex-1 flex flex-col items-center justify-end min-w-0"><div class="w-full bg-sky-600 rounded-sm" style="height:' + Math.max(3, Math.round(x.qty / maxH * 36)) + 'px"></div><div class="text-[8px] text-slate-500 mt-0.5">' + x.h + '</div></div>'; }).join('') + '</div>';
+      var tags = '';
+      if (y.ach != null) tags += '<span class="text-[10px] font-black rounded px-1.5 py-0.5 border ' + (y.ok ? 'border-emerald-500 text-emerald-300' : 'border-rose-500 text-rose-300') + '">&#127919; ' + Math.round(y.ach * 100) + '% of target</span>';
+      if (y.vsPrev) {
+        var dp = y.vsPrev.deltaPct;
+        tags += dp > 0 ? '<span class="text-[10px] font-black rounded px-1.5 py-0.5 bg-emerald-700 text-white">&#9650; ' + dp + '% better than ' + esc(y.vsPrev.prevDate) + '</span>'
+          : dp < 0 ? '<span class="text-[10px] font-black rounded px-1.5 py-0.5 bg-rose-700 text-white">&#9660; ' + (-dp) + '% lower than ' + esc(y.vsPrev.prevDate) + '</span>'
+          : '<span class="text-[10px] font-black rounded px-1.5 py-0.5 bg-slate-600 text-white">= same as ' + esc(y.vsPrev.prevDate) + '</span>';
+      }
+      if (tags) h += '<div class="flex flex-wrap gap-1.5 mt-2.5">' + tags + '</div>';
+      if ((y.gaps || []).length) h += '<div class="mt-2 text-[11px] font-bold text-rose-400">&#9888; No entries at ' + y.gaps.map(hh).join(', ') + '</div>';
+      var tr = y.trend || [], mx7 = 1; tr.forEach(function (x) { if (x.tph > mx7) mx7 = x.tph; });
+      if (tr.some(function (x) { return x.hours > 0; })) {
+        h += '<div class="mt-3 text-[10px] font-bold uppercase text-slate-500">Last 7 days (TPH)</div><div class="flex items-end gap-1 h-14 mt-1">' + tr.map(function (x, i) {
+          var last = i === tr.length - 1;
+          return '<div class="flex-1 flex flex-col items-center justify-end min-w-0"><div class="text-[8px] text-slate-400">' + (x.hours ? esc(Math.round(x.tph)) : '-') + '</div><div class="w-full rounded-sm ' + (x.hours ? (last ? 'bg-sky-400' : 'bg-slate-500') : 'bg-slate-800') + '" style="height:' + (x.hours ? Math.max(3, Math.round(x.tph / mx7 * 30)) : 2) + 'px"></div><div class="text-[8px] text-slate-500">' + esc(x.date.slice(8)) + '</div></div>';
+        }).join('') + '</div>';
+      }
+      setIfChanged(box, h);
+    }
+
+    // sheet changed -> everyone hears about it at the same moment (carried on the 5 s poll)
+    function checkProdVer(pv) {
+      if (!pv) return;
+      var seen = sget('prod_seen_latest'), cur = pv.v || String(pv.rows);
+      if (pv.latest) {
+        store('prod_seen_latest', pv.latest);
+        if (seen && pv.latest > seen) { toast('\u{1F4C8} Productivity data for ' + pv.latest + ' is now live'); buzz(2); notify('Productivity', 'Data for ' + pv.latest + ' is now live'); S.yAt = 0; S.yFor = ''; }
+      }
+      if (S.prodSig != null && cur !== S.prodSig) {       // ANY update of the sheet (new rows or edited numbers)
+        if (!(pv.latest && seen && pv.latest > seen)) { toast('\u{1F4C8} Productivity sheet updated'); buzz(1); }
+        S.yAt = 0; S.yFor = ''; loadYesterday(); renderYesterday();
+        if (!$('prodModal').classList.contains('hidden')) { loadProd(true); }
+      }
+      S.prodSig = cur;
+    }
+
+    // 1-second tick: break countdown against SERVER time
+    function setTxt(el, v) { if (el.textContent !== v) el.textContent = v; }
+    function setCls(el, v) { if (el.className !== v) el.className = v; }
+    // Shift is 12 AM - 9 AM Riyadh (UTC+3, no daylight saving). Logged-in people are signed out the moment it ends.
+    function shiftOverNow() { var h = new Date(nowSrv() + 3 * 3600000).getUTCHours(); return h >= (S.state && S.state.shiftEndHour != null ? S.state.shiftEndHour : 9); }
+    function checkShiftEnd() {
+      if (!S.token || !S.sawActive) return false;
+      if (shiftOverNow()) { doLogout('Shift ended. You have been logged out.'); return true; }
+      return false;
+    }
+    function tickBreak() {
+      if (checkShiftEnd()) return;
+      var st = S.state; if (!st || !S.token) return;
+      var me = findMe(st); if (!me) return;
+      var a = (st.assignments || {})[me.id] || {};
+      var box = $('breakActiveBox');
+      if (!a.onBreak || box.classList.contains('hidden')) return;
+      var diff = a.breakEndTime - nowSrv();
+      var cd = $('breakTimerCountdown'), warn = $('breakOvertimeWarn'), bs = $('breakStatusBadge');
+      if (diff > 0) {
+        setTxt($('breakTimerLabel'), T('brk_left')); setTxt(cd, fmtMMSS(diff));
+        if (diff <= 120000 && S.breakWarnFor !== a.breakEndTime) { S.breakWarnFor = a.breakEndTime; buzz(3); toast(T('brk_2min')); notify('Break', T('brk_2min')); }
+        setCls(cd, diff <= 120000 ? 'text-lg font-black text-orange-300 font-mono animate-pulse' : 'text-lg font-black text-amber-300 font-mono');
+        setTxt(bs, 'ON BREAK'); show('breakOvertimeWarn', false);
+      } else {
+        var over = Math.ceil(-diff / 60000);
+        setTxt($('breakTimerLabel'), T('brk_over')); setTxt(cd, '+' + fmtMMSS(-diff)); setCls(cd, 'text-lg font-black text-rose-300 font-mono');
+        setTxt(bs, 'OVERTIME');
+        setTxt(warn, 'Your break is over by ' + over + ' min. Please return to your station now.'); show('breakOvertimeWarn', true);
+      }
+    }
+
+    // ================= BROADCAST: receive, TL compose, TL floor =================
+    var RING_REASONS = ['Report to TL desk immediately', 'Check your line right now', 'Break ended - return to line', 'Call your Floor Lead now'];
+    function bcInit() {
+      S.bcBuzzed = S.bcBuzzed || {}; S.bcView = S.bcView || ''; S.bcZoom = !!S.bcZoom; S.tlTab = S.tlTab || 'floor'; S.bcUnseenOpen = S.bcUnseenOpen || {};
+      S.bc = S.bc || { all: true, lines: {}, ids: {}, prio: 'normal', imgData: '', imgId: '', up: '', people: false, q: '' };
+    }
+    function bcCard(b, readOnly, idx, n) {
+      var urgent = b.priority === 'urgent';
+      var img = b.imageUrl ? '<div class="mt-3"><img src="' + esc(b.imageUrl) + '" alt="" data-act="bcZoom" class="w-full rounded-2xl border border-slate-700 bg-slate-800 ' + (S.bcZoom ? '' : 'max-h-72 object-contain') + '" onerror="this.outerHTML=\'<div class=&quot;p-4 text-center text-xs text-slate-400 bg-slate-800 rounded-2xl&quot;>Photo could not load</div>\'"></div>' : '';
+      return '<div class="rounded-3xl border-2 p-4 shadow-2xl ' + (urgent ? 'border-rose-500 bg-rose-950/80 animate-emergency' : 'border-sky-500 bg-slate-900') + '">' +
+        '<div class="flex items-center justify-between text-[10px] font-black uppercase ' + (urgent ? 'text-rose-200' : 'text-sky-300') + '"><span>' + (urgent ? '🚨 Urgent message' : '📢 Message') + '</span>' + (n > 1 ? '<span>' + idx + ' / ' + n + '</span>' : '') + '</div>' +
+        (b.title ? '<h2 class="text-lg font-black text-white mt-1.5 break-words">' + esc(b.title) + '</h2>' : '') +
+        '<div class="text-[10px] text-slate-400 mt-0.5">' + esc(b.sender) + ' • ' + esc(b.timeStr) + '</div>' + img +
+        (b.message ? '<p class="text-base text-white mt-3 whitespace-pre-wrap break-words leading-relaxed">' + esc(b.message) + '</p>' : '') +
+        (readOnly ? '<button data-act="bcClose" class="w-full mt-4 py-3 bg-slate-700 text-white font-black rounded-2xl">Close</button>' :
+          '<div class="grid grid-cols-2 gap-2 mt-4"><button data-act="bcAck" data-id="' + esc(b.id) + '" data-k="ok" class="py-3.5 bg-emerald-600 text-white font-black rounded-2xl text-sm active:scale-95">✔ Got it</button>' +
+          '<button data-act="bcAck" data-id="' + esc(b.id) + '" data-k="unclear" class="py-3.5 bg-amber-600 text-white font-black rounded-2xl text-sm active:scale-95">❓ Not clear</button></div>') + '</div>';
+    }
+    function renderBroadcast(st, me, present) {
+      bcInit();
+      var list = st.broadcasts || [], myId = lc(me.id);
+      var unseen = list.filter(function (b) { return (b.unseen || []).some(function (u) { return lc(u.id) === myId; }); });
+      unseen.sort(function (a, b) { return (b.priority === 'urgent') - (a.priority === 'urgent') || a.ts - b.ts; });
+      unseen.forEach(function (b) {
+        if (S.bcBuzzed[b.id] == null) { S.bcBuzzed[b.id] = b.ping || 0; if (S.bcPrimed) { buzz(b.priority === 'urgent' ? 6 : 3); notify(b.priority === 'urgent' ? 'URGENT message' : 'New message', b.title || b.message || 'Photo'); } else { buzz(b.priority === 'urgent' ? 6 : 2); } }
+        else if ((b.ping || 0) > S.bcBuzzed[b.id]) { S.bcBuzzed[b.id] = b.ping; buzz(5); notify('Reminder: please read', b.title || b.message || 'Photo'); }
+      });
+      S.bcPrimed = true;
+      S.bcUrgentOpen = unseen.some(function (b) { return b.priority === 'urgent'; });
+      var viewB = S.bcView ? list.filter(function (b) { return b.id === S.bcView; })[0] : null;
+      if (S.bcView && !viewB) S.bcView = '';
+      var html = '';
+      if (unseen.length) html = bcCard(unseen[0], false, 1, unseen.length);
+      else if (viewB) html = bcCard(viewB, true, 1, 1);
+      var modal = $('bcModal');
+      if (html) { setIfChanged($('bcModalBody'), html); if (modal.classList.contains('hidden')) { modal.classList.remove('hidden'); modal.scrollTop = 0; } }
+      else if (!modal.classList.contains('hidden')) { modal.classList.add('hidden'); $('bcModalBody')._h = ''; $('bcModalBody').innerHTML = ''; }
+      lockScroll();
+      // read messages stay reachable
+      var seen = list.filter(function (b) { return b.acks && b.acks[me.id]; });
+      show('bcMsgsBox', seen.length > 0);
+      if (seen.length) setIfChanged($('bcMsgsBox'), '<div class="text-[11px] font-black text-sky-300 uppercase">📢 Messages (' + seen.length + ')</div>' + seen.map(function (b) {
+        return '<button data-act="bcOpen" data-id="' + esc(b.id) + '" class="w-full flex items-center gap-2 text-left px-2.5 py-2 rounded-xl bg-slate-900/80 border ' + (b.priority === 'urgent' ? 'border-rose-700' : 'border-slate-700') + '">' +
+          (b.imageUrl ? '<span class="text-base">📷</span>' : '<span class="text-base">' + (b.priority === 'urgent' ? '🚨' : '📢') + '</span>') +
+          '<span class="flex-1 min-w-0"><span class="block text-xs font-black text-white truncate">' + esc(b.title || b.message || 'Photo') + '</span><span class="block text-[10px] text-slate-400">' + esc(b.sender) + ' • ' + esc(b.timeStr) + '</span></span><span class="text-slate-500">›</span></button>';
+      }).join(''));
+    }
+    setInterval(function () { if (S.state && S.bcUrgentOpen && !document.hidden) buzz(3); }, 25000);
+
+    // ---- CC: photo on a help call
+    function helpPhotoRender() {
+      var h = S.helpImg || {}; show('helpPhotoWrap', !!h.data); show('helpPhotoClear', !!h.data);
+      if (h.data) $('helpPhotoPrev').src = h.data;
+      $('helpPhotoState').innerHTML = h.up === 'busy' ? '<span class="text-amber-300">Uploading photo...</span>' : h.up === 'ok' ? '<span class="text-emerald-300">&#10004; Photo attached</span>' : h.up === 'err' ? '<span class="text-rose-300">Upload failed - remove and try again</span>' : '';
+    }
+    function helpPhotoReset() { S.helpImg = { data: '', id: '', up: '' }; if ($('helpFile')) $('helpFile').value = ''; helpPhotoRender(); }
+    function uploadHelpPhoto(file, done) {
+      shrinkImage(file, function (dataUrl) {
+        call('pdaUploadHelpPhoto', [S.token, S.empId, dataUrl], function (res) { done(dataUrl, res); }, function () { done(dataUrl, { success: false, error: 'Network problem.' }); });
+      }, function () { done('', { success: false, error: 'Could not read that photo.' }); });
+    }
+    function onHelpFile(file) {
+      if (!file) return;
+      S.helpImg = { data: '', id: '', up: 'busy' }; helpPhotoRender();
+      uploadHelpPhoto(file, function (dataUrl, res) {
+        if (res && res.success) S.helpImg = { data: dataUrl, id: res.imageId, up: 'ok' };
+        else { S.helpImg = { data: dataUrl, id: '', up: 'err' }; toast((res && res.error) || 'Photo upload failed.'); }
+        helpPhotoRender();
+      });
+    }
+    function onMyHelpFile(file) {
+      var mh = (S.state.activeHelpRequests || []).filter(function (r) { return lc(r.empId) === lc(S.empId); })[0];
+      if (!file || !mh) return;
+      toast('Uploading photo...');
+      uploadHelpPhoto(file, function (dataUrl, res) {
+        if (res && res.success) act('pdaAttachHelpPhoto', [S.empId, mh.id, res.imageId], 'Photo added to your call', 'hp-' + mh.id);
+        else toast((res && res.error) || 'Photo upload failed.');
+      });
+    }
+
+    // ---- TL: tabs
+    function renderTlTabs(st, helps) {
+      bcInit();
+      ['floor', 'help', 'bc', 'team'].forEach(function (t) {
+        var el = $({ floor: 'tlTabFloor', help: 'tlTabHelp', bc: 'tlTabBc', team: 'tlTabTeam' }[t]);
+        el.className = 'py-2 rounded-xl border relative ' + (S.tlTab === t ? 'bg-sky-700 border-sky-300 text-white' : 'bg-slate-800 border-slate-600 text-slate-300');
+        show({ floor: 'tlPaneFloor', help: 'tlPaneHelp', bc: 'tlPaneBc', team: 'tlPaneTeam' }[t], S.tlTab === t);
+      });
+      var n = $('tlTabHelpN'); n.textContent = helps.length; n.classList[helps.length ? 'remove' : 'add']('hidden');
+    }
+    // ---- TL: floor overview
+    function brkTxt(a) {
+      if (!a.breakEndTime) return '';
+      var d = Math.round((a.breakEndTime - (Date.now() + S.skew)) / 60000);
+      return d >= 0 ? d + 'm left' : '+' + (-d) + 'm over';
+    }
+    function renderFloor(st, me, active) {
+      var emps = st.employees || [], att = st.attendance || {}, as = st.assignments || {}, defs = st.taskDefinitions || {};
+      var byLine = {}, off = [], onBreak = 0, over = 0, helping = 0;
+      emps.forEach(function (w) {
+        if ((att[w.id] || 'Present') !== 'Present') { off.push(w); return; }
+        var a = as[w.id] || {}, ln = curStation(a, '') || 'None';
+        (byLine[ln] = byLine[ln] || []).push(w);
+        if (a.onBreak) { onBreak++; if (a.breakEndTime && Date.now() + S.skew > a.breakEndTime) over++; }
+        if (a.isHelping) helping++;
+      });
+      var order = ['FT', 'PK', 'BT'], codes = Object.keys(defs);
+      codes.sort(function (x, y) { var ix = order.indexOf(x), iy = order.indexOf(y); return (ix < 0 ? 99 : ix) - (iy < 0 ? 99 : iy) || (x < y ? -1 : 1); });
+      var breach = {}; (st.minStaffBreaches || []).forEach(function (b) { breach[b.code] = b; });
+      var total = emps.filter(function (w) { return (att[w.id] || 'Present') === 'Present'; }).length;
+      var h = '<div class="grid grid-cols-4 gap-1.5 text-center">' + [['On duty', total, 'text-emerald-300'], ['On break', onBreak, 'text-amber-300'], ['Overstay', over, over ? 'text-rose-300' : 'text-slate-400'], ['Helpers', helping, 'text-sky-300']].map(function (x) {
+        return '<div class="bg-slate-800/95 border border-slate-700 rounded-xl py-1.5"><div class="text-base font-black ' + x[2] + '">' + x[1] + '</div><div class="text-[9px] text-slate-400">' + x[0] + '</div></div>';
+      }).join('') + '</div>';
+      codes.forEach(function (code) {
+        var ppl = byLine[code] || [];
+        if (!ppl.length && !breach[code]) return;
+        var d = defs[code] || {}, bch = breach[code];
+        var live = ppl.filter(function (w) { return !(as[w.id] || {}).onBreak; }).length;
+        h += '<div class="bg-slate-800/95 border ' + (bch ? 'border-rose-500' : 'border-slate-700') + ' rounded-2xl overflow-hidden">' +
+          '<div class="flex items-center justify-between px-3 py-2 bg-slate-900/70"><div class="text-xs font-black text-white">' + esc(code) + ' <span class="text-slate-400 font-bold">' + esc(d.name || '') + '</span></div>' +
+          '<div class="text-[11px] font-black ' + (bch ? 'text-rose-300' : 'text-slate-300') + '">' + live + ' active' + (ppl.length !== live ? ' · ' + (ppl.length - live) + ' break' : '') + (bch ? ' · min ' + bch.min : '') + '</div></div><div class="p-1.5 space-y-1">' +
+          ppl.map(function (w) {
+            var a = as[w.id] || {}, bt = a.onBreak ? brkTxt(a) : '';
+            var bo = a.onBreak && a.breakEndTime && Date.now() + S.skew > a.breakEndTime;
+            return '<button data-act="ccOpen" data-id="' + esc(w.id) + '" class="w-full flex items-center gap-2 px-2.5 py-2 rounded-xl border text-left ' + (bo ? 'border-rose-600 bg-rose-950/40' : a.onBreak ? 'border-amber-700/70 bg-amber-950/20' : 'border-slate-700 bg-slate-900/60') + '">' +
+              '<span class="flex-1 min-w-0 truncate text-xs font-bold text-white">' + esc(w.name) + '</span>' +
+              (a.isHelping ? '<span class="text-[9px] font-black text-sky-300 bg-sky-950 border border-sky-700 rounded px-1.5">Helper</span>' : '') +
+              (a.onBreak ? '<span class="text-[10px] font-black ' + (bo ? 'text-rose-300' : 'text-amber-300') + '">☕ ' + esc(bt) + '</span>' : '') +
+              '<span class="text-slate-500 text-sm">›</span></button>';
+          }).join('') + '</div></div>';
+      });
+      if (off.length) h += '<div class="bg-slate-800/60 border border-slate-700 rounded-2xl p-2"><div class="text-[10px] font-black uppercase text-slate-400 px-1 mb-1">Not on duty (' + off.length + ')</div><div class="flex flex-wrap gap-1">' +
+        off.map(function (w) { return '<button data-act="ccOpen" data-id="' + esc(w.id) + '" class="px-2 py-1 rounded-lg bg-slate-900 border border-slate-700 text-[11px] text-slate-300">' + esc(w.name) + ' <span class="text-slate-500">' + esc(att[w.id] || '') + '</span></button>'; }).join('') + '</div></div>';
+      setIfChanged($('tlFloorBox'), h);
+      renderSheet(st, active);
+    }
+    function sheetBtn(act, id, k, label, cls) { return '<button data-act="' + act + '" data-id="' + esc(id) + '"' + (k != null ? ' data-k="' + esc(k) + '"' : '') + ' class="w-full py-3 rounded-2xl text-sm font-black active:scale-95 ' + (cls || 'bg-slate-800 border border-slate-600 text-white') + '">' + label + '</button>'; }
+    function renderSheet(st, active) {
+      var sh = S.sheet, el = $('ccSheet');
+      if (!sh) { if (!el.classList.contains('hidden')) { el.classList.add('hidden'); lockScroll(); } return; }
+      var w = (st.employees || []).filter(function (x) { return lc(x.id) === lc(sh.id); })[0];
+      if (!w) { S.sheet = null; el.classList.add('hidden'); lockScroll(); return; }
+      var a = (st.assignments || {})[w.id] || {}, at = (st.attendance || {})[w.id] || 'Present', here = at === 'Present';
+      var line = curStation(a, ''), defs = st.taskDefinitions || {};
+      var codes = Object.keys(defs).filter(function (c) { return !(st.disabledTasks || {})[c]; });
+      var h = '<div class="flex items-start justify-between mb-3"><div class="min-w-0"><div class="text-base font-black text-white truncate">' + esc(w.name) + '</div><div class="text-[11px] text-slate-400">' + esc(w.id) + ' · ' + (here ? esc(line || '-') + (a.onBreak ? ' · ☕ ' + esc(brkTxt(a)) : '') + (a.isHelping ? ' · helper' : '') : esc(at)) + '</div></div><button data-act="ccClose" class="px-3 py-1.5 bg-slate-800 rounded-xl text-slate-300 text-xs font-black">✕</button></div>';
+      if (sh.mode !== 'main') h += '<button data-act="ccMode" data-k="main" class="mb-2 text-[11px] font-black text-sky-300">‹ Back</button>';
+      if (sh.mode === 'main') {
+        h += '<div class="space-y-2">';
+        if (here) {
+          h += sheetBtn('ccMode', w.id, 'move', '↔ Move to another line');
+          h += a.onBreak ? sheetBtn('ccBreakEnd', w.id, null, '☕ End break', 'bg-amber-600 text-white') : sheetBtn('ccBreakStart', w.id, null, '☕ Start break');
+          h += a.isHelping ? sheetBtn('ccHelperBack', w.id, null, '↩ Return to own line') : sheetBtn('ccMode', w.id, 'helper', '🤝 Send as helper to…');
+          h += sheetBtn('ccMode', w.id, 'ring', '🔔 Ring bell (call to desk)');
+        }
+        h += sheetBtn('ccMode', w.id, 'att', '📋 Attendance (present / absent / late…)');
+        h += '</div>';
+      } else if (sh.mode === 'move' || sh.mode === 'helper') {
+        h += '<div class="text-[11px] font-black uppercase text-slate-400 mb-2">' + (sh.mode === 'move' ? 'Move to line' : 'Send as helper to') + '</div><div class="grid grid-cols-3 gap-2">' +
+          codes.map(function (c) { return '<button data-act="' + (sh.mode === 'move' ? 'ccMove' : 'ccHelper') + '" data-id="' + esc(w.id) + '" data-k="' + esc(c) + '"' + (c === line ? ' disabled' : '') + ' class="py-3 rounded-xl text-sm font-black active:scale-95 ' + (c === line ? 'bg-slate-800 text-slate-600 border border-slate-800' : 'bg-sky-800 text-white border border-sky-500') + '">' + esc(c) + '</button>'; }).join('') + '</div>';
+      } else if (sh.mode === 'ring') {
+        h += '<div class="space-y-2">' + RING_REASONS.map(function (r, i) { return sheetBtn('ccRing', w.id, String(i), '🔔 ' + esc(r), 'bg-amber-500 text-slate-950'); }).join('') + '</div>';
+      } else if (sh.mode === 'att') {
+        h += '<div class="grid grid-cols-3 gap-2 mb-2">' + [['Present', 'Present', 'bg-emerald-700'], ['AB', 'Absent', 'bg-rose-700'], ['LV', 'Leave', 'bg-sky-700']].map(function (x) { return '<button data-act="ccAtt" data-id="' + esc(w.id) + '" data-k="' + x[0] + '" class="py-3 rounded-xl text-sm font-black text-white active:scale-95 ' + x[2] + '">' + x[1] + '</button>'; }).join('') + '</div>' +
+          '<div class="flex items-center gap-2"><input data-keep="ccAttTime" id="ccAttTime" type="time" class="flex-1 bg-slate-950 border border-slate-700 rounded-xl p-2.5 text-white"><button data-act="ccAtt" data-id="' + esc(w.id) + '" data-k="late" class="px-3 py-3 rounded-xl text-xs font-black bg-amber-700 text-white">Late</button><button data-act="ccAtt" data-id="' + esc(w.id) + '" data-k="early" class="px-3 py-3 rounded-xl text-xs font-black bg-slate-600 text-white">Early out</button></div>';
+      }
+      if (!active) h += '<div class="mt-3 text-[11px] text-amber-300 text-center">Shift is closed - most actions are disabled.</div>';
+      el.classList.remove('hidden'); setKeepInputs($('ccSheetBody'), h); lockScroll();
+    }
+
+    // ---- TL: broadcast compose / seen list
+    function chip(on, act, k, label, id) { return '<button data-act="' + act + '"' + (k != null ? ' data-k="' + esc(k) + '"' : '') + (id != null ? ' data-id="' + esc(id) + '"' : '') + ' class="px-3 py-1.5 rounded-full border text-[11px] font-black ' + (on ? 'bg-sky-600 border-sky-300 text-white' : 'bg-slate-900 border-slate-600 text-slate-300') + '">' + label + '</button>'; }
+    function bcChosenIds() { return Object.keys(S.bc.ids).filter(function (k) { return S.bc.ids[k]; }); }
+    function bcChosenLines() { return Object.keys(S.bc.lines).filter(function (k) { return S.bc.lines[k]; }); }
+    function renderBcCompose(st) {
+      var b = S.bc, defs = st.taskDefinitions || {}, nIds = bcChosenIds().length;
+      var h = chip(b.all, 'bcTarget', 'ALL', 'Everyone');
+      Object.keys(defs).forEach(function (c) { h += chip(!!b.lines[c], 'bcTarget', c, esc(c)); });
+      h += chip(b.people || nIds > 0, 'bcTarget', 'PEOPLE', '👤 People' + (nIds ? ' (' + nIds + ')' : ''));
+      setIfChanged($('bcTargetChips'), h);
+      show('bcPeopleBox', b.people);
+      if (b.people) {
+        var att = st.attendance || {}, q = lc(b.q);
+        setIfChanged($('bcPeopleList'), (st.employees || []).filter(function (w) { return (att[w.id] || 'Present') === 'Present' && (!q || lc(w.name + ' ' + w.id).indexOf(q) >= 0); }).map(function (w) {
+          var on = !!b.ids[w.id];
+          return '<button data-act="bcPerson" data-id="' + esc(w.id) + '" class="text-left px-2 py-1.5 rounded-lg border text-[11px] font-bold truncate ' + (on ? 'bg-sky-700 border-sky-300 text-white' : 'bg-slate-900 border-slate-700 text-slate-300') + '">' + (on ? '✓ ' : '') + esc(w.name) + '</button>';
+        }).join(''));
+      }
+      setIfChanged($('bcPrioBox'), ['normal', 'urgent'].map(function (k) { return '<button data-act="bcPrio" data-k="' + k + '" class="py-2 rounded-xl border ' + (b.prio === k ? (k === 'urgent' ? 'bg-rose-600 border-rose-300 text-white' : 'bg-sky-600 border-sky-300 text-white') : 'bg-slate-900 border-slate-600 text-slate-300') + '">' + (k === 'urgent' ? '🚨 Urgent' : 'Normal') + '</button>'; }).join(''));
+      var st2 = b.up === 'busy' ? '<span class="bg-slate-900/90 text-amber-300 px-2 py-0.5 rounded">Uploading photo...</span>' : b.up === 'ok' ? '<span class="bg-slate-900/90 text-emerald-300 px-2 py-0.5 rounded">✔ Photo ready</span>' : b.up === 'err' ? '<span class="bg-slate-900/90 text-rose-300 px-2 py-0.5 rounded">Upload failed - remove and try again</span>' : '';
+      setIfChanged($('bcUpState'), st2);
+      $('bcSendBtn').disabled = b.up === 'busy' || !!S.pending.bcSend;
+      $('bcSendBtn').classList[$('bcSendBtn').disabled ? 'add' : 'remove']('opacity-50');
+    }
+    function renderBcLists(st, me) {
+      var emps = st.employees || [], nm = {}; emps.forEach(function (w) { nm[w.id] = w.name; });
+      var act = st.broadcasts || [];
+      setIfChanged($('bcActiveBox'), act.length ? '<div class="text-[11px] font-black uppercase text-slate-400 px-1">Active messages</div>' + act.map(function (b) {
+        var pct = b.total ? Math.round(b.ackedCount / b.total * 100) : 0, open = !!S.bcUnseenOpen[b.id];
+        var unclear = Object.keys(b.reply || {}).filter(function (k) { return b.reply[k] === 'unclear'; }).map(function (k) { return nm[k] || k; });
+        return '<div class="bg-slate-800/95 border ' + (b.priority === 'urgent' ? 'border-rose-600' : 'border-slate-700') + ' rounded-2xl p-3 space-y-2">' +
+          '<div class="flex gap-2">' + (b.imageUrl ? '<img src="' + esc(b.imageUrl) + '" alt="" class="w-14 h-14 rounded-lg object-cover border border-slate-700">' : '') +
+          '<div class="min-w-0 flex-1"><div class="text-xs font-black text-white break-words">' + (b.priority === 'urgent' ? '🚨 ' : '') + esc(b.title || b.message || 'Photo') + '</div>' + (b.title && b.message ? '<div class="text-[11px] text-slate-400 break-words">' + esc(String(b.message).slice(0, 90)) + '</div>' : '') + '<div class="text-[10px] text-slate-500">' + esc(b.sender) + ' · ' + esc(b.timeStr) + '</div></div></div>' +
+          '<div><div class="flex justify-between text-[10px] font-bold text-slate-300"><span>Seen ' + b.ackedCount + ' of ' + b.total + '</span><span>' + pct + '%</span></div><div class="h-1.5 bg-slate-900 rounded-full overflow-hidden"><div class="h-full ' + (pct === 100 ? 'bg-emerald-500' : 'bg-sky-500') + '" style="width:' + pct + '%"></div></div></div>' +
+          (unclear.length ? '<div class="text-[11px] font-bold text-amber-300">❓ Not clear: ' + esc(unclear.join(', ')) + '</div>' : '') +
+          (b.unseen && b.unseen.length ? '<button data-act="bcUnseen" data-id="' + esc(b.id) + '" class="text-[11px] font-black text-rose-300">' + (open ? '▾' : '▸') + ' Not seen yet (' + b.unseen.length + ')</button>' + (open ? '<div class="text-[11px] text-slate-300 leading-relaxed">' + b.unseen.map(function (u) { return esc(u.name); }).join(', ') + '</div>' : '') : '') +
+          '<div class="grid grid-cols-2 gap-2"><button data-act="bcRemind" data-id="' + esc(b.id) + '" class="py-2 rounded-xl bg-amber-600 text-white text-[11px] font-black">🔔 Remind unseen</button><button data-act="bcEnd" data-id="' + esc(b.id) + '" class="py-2 rounded-xl bg-slate-700 text-white text-[11px] font-black">🗑 End</button></div></div>';
+      }).join('') : '<div class="text-center text-slate-500 text-xs italic p-3">No active messages.</div>');
+      var hist = st.bcHistory || [];
+      setIfChanged($('bcHistBox'), hist.length ? '<div class="text-[11px] font-black uppercase text-slate-400 px-1 mb-1">Earlier messages</div><div class="space-y-1">' + hist.map(function (b) {
+        return '<div class="px-3 py-2 rounded-xl bg-slate-900/70 border border-slate-800 text-[11px]"><div class="font-bold text-slate-200 truncate">' + (b.imageUrl ? '📷 ' : '') + esc(b.title || b.message || 'Photo') + '</div><div class="text-slate-500">' + esc(b.sender) + ' · ' + esc(b.timeStr) + ' · seen ' + b.ackedCount + '/' + b.total + ' · ' + esc(b.status) + '</div></div>';
+      }).join('') + '</div>' : '');
+    }
+    function resetBc() {
+      S.bc = { all: true, lines: {}, ids: {}, prio: 'normal', imgData: '', imgId: '', up: '', people: false, q: '' };
+      $('bcTitle').value = ''; $('bcMsg').value = ''; $('bcCounter').textContent = '0 / 800'; $('bcFile').value = ''; $('bcExpiry').value = 'shift'; $('bcPeopleSearch').value = '';
+      show('bcPreviewWrap', false); show('bcPhotoClear', false); $('bcPreview').removeAttribute('src');
+    }
+    // phone photos are big: shrink to <=1000px JPEG in the browser before uploading
+    function shrinkImage(file, done, fail) {
+      var fr = new FileReader();
+      fr.onerror = function () { fail(); };
+      fr.onload = function () {
+        var im = new Image();
+        im.onerror = function () { fail(); };
+        im.onload = function () {
+          var mx = 1000, w = im.width, h = im.height, k = Math.min(1, mx / Math.max(w, h));
+          var c = document.createElement('canvas'); c.width = Math.round(w * k); c.height = Math.round(h * k);
+          c.getContext('2d').drawImage(im, 0, 0, c.width, c.height);
+          done(c.toDataURL('image/jpeg', 0.8));
+        };
+        im.src = fr.result;
+      };
+      fr.readAsDataURL(file);
+    }
+    function onBcFile(file) {
+      if (!file) return;
+      bcInit(); S.bc.up = 'busy'; S.bc.imgId = ''; renderBcCompose(S.state);
+      shrinkImage(file, function (dataUrl) {
+        S.bc.imgData = dataUrl; $('bcPreview').src = dataUrl; show('bcPreviewWrap', true); show('bcPhotoClear', true);
+        call('uploadBroadcastImage', [S.token, dataUrl], function (res) {
+          if (!S.bc.imgData) return;
+          if (res && res.success) { S.bc.imgId = res.imageId; S.bc.up = 'ok'; } else { S.bc.up = 'err'; toast((res && res.error) || 'Photo upload failed.'); }
+          renderBcCompose(S.state);
+        }, function () { S.bc.up = 'err'; toast('Photo upload failed.'); renderBcCompose(S.state); });
+      }, function () { S.bc.up = 'err'; toast('Could not read that photo.'); renderBcCompose(S.state); });
+    }
+    function sendBc() {
+      bcInit();
+      var b = S.bc, msg = $('bcMsg').value.trim();
+      if (b.up === 'busy') { toast('Photo is still uploading...'); return; }
+      if (!msg && !b.imgId) { toast('Write a message or add a photo first.'); return; }
+      var payload = { title: $('bcTitle').value.trim(), message: msg, imageId: b.imgId, priority: b.prio, all: b.all && !bcChosenLines().length && !bcChosenIds().length, lines: bcChosenLines(), ids: bcChosenIds(), expiry: $('bcExpiry').value };
+      if (S.pending.bcSend) return; S.pending.bcSend = true; renderBcCompose(S.state);
+      call('sendBroadcast', [S.token, payload], function (res) {
+        S.pending.bcSend = false;
+        if (res && res.code === 'AUTH') { doLogout('Session expired. Please log in again.'); return; }
+        if (res && res.success) { applyState(res.state, false); toast('Message sent'); resetBc(); }
+        else toast((res && res.error) || 'Could not send.');
+        renderBcCompose(S.state);
+      }, function () { S.pending.bcSend = false; toast('Network problem. Try again.'); renderBcCompose(S.state); });
+    }
+
+    function renderTL(st, me, helps, emps, active) {
+      $('tlProfileName').textContent = me.name; $('tlProfileId').textContent = me.id;
+      renderTlTabs(st, helps); renderFloor(st, me, active); renderBcCompose(st); renderBcLists(st, me);
+      var breaches = st.minStaffBreaches || [];
+      show('tlBreachBanner', breaches.length > 0);
+      var key = breaches.map(function (b) { return b.code; }).sort().join(',');
+      setIfChanged($('tlBreachList'), breaches.map(function (b) { return '<div>' + esc(b.code) + ' - ' + esc(stationName(st, b.code)) + ': ' + b.active + ' active (minimum ' + b.min + ')</div>'; }).join(''));
+      if (key && key !== S.lastBreachKey) { buzz(4); notify('Minimum staff breached', key); }
+      S.lastBreachKey = key;
+
+      $('tlHelpCallCountBadge').textContent = helps.length;
+      setIfChanged($('tlHelpCallsContainer'), helps.length ? sortHelps(helps).map(function (r) { return helpCard(r, true, true); }).join('') :
+        '<div class="p-3 text-center text-slate-500 text-xs italic bg-slate-900/60 rounded-xl">No active help requests.</div>');
+
+      // non sort counts
+      var ns = st.nonSortRequests || [];
+      setKeepInputs($('tlNsContainer'), ns.length ? ns.map(function (r) {
+        if (r.status === 'pending') {
+          return '<div class="p-2.5 bg-slate-900/80 border border-indigo-800 rounded-xl text-xs"><div class="flex justify-between"><span class="font-black text-white">' + esc(r.empName) + '</span><span class="font-mono text-indigo-300">' + esc(r.awb) + '</span></div>' +
+            '<div class="flex gap-2 mt-2"><input data-keep="ns-' + esc(r.id) + '" id="nsc-' + esc(r.id) + '" type="number" inputmode="numeric" min="1" placeholder="Qty" class="flex-1 min-w-0 bg-slate-950 border border-slate-700 rounded-lg px-2 py-1.5 text-white outline-none focus:border-sky-500">' +
+            '<button data-act="nsSetCount" data-id="' + esc(r.id) + '" class="px-3 py-1.5 bg-indigo-700 text-white font-black rounded-lg text-[11px]">Send count</button>' +
+            '<button data-act="nsCancelTl" data-id="' + esc(r.id) + '" class="px-2 py-1.5 bg-slate-800 text-slate-300 rounded-lg text-[11px]">&#10005;</button></div></div>';
+        }
+        return '<div class="p-2.5 bg-slate-900/80 border border-emerald-800 rounded-xl text-xs flex justify-between items-center"><span class="font-black text-white">' + esc(r.empName) + ' <span class="font-mono text-slate-400 font-normal">' + esc(r.awb) + '</span></span><span class="font-black text-emerald-300">Count ' + esc(r.count) + ' sent</span></div>';
+      }).join('') : '<div class="text-center text-slate-500 text-xs italic bg-slate-900/60 rounded-xl p-3">No Non Sort requests.</div>');
+
+      var avail = emps.filter(function (w) { return lc(w.id) !== lc(me.id) && (st.attendance[w.id] === 'Present'); });
+      var optHtml = avail.map(function (w) {
+        var a = st.assignments[w.id] || {};
+        return '<option value="' + esc(w.id) + '">' + esc(w.name) + ' (' + esc(curStation(a, '')) + ')' + (a.onBreak ? ' [Break]' : '') + '</option>';
+      }).join('');
+      fillSelect($('tlSummonTargetSelect'), optHtml);
+      fillSelect($('tlDirectHelperWorkerSelect'), optHtml);
+      var codes = Object.keys(st.taskDefinitions || {}).filter(function (c) { return !(st.disabledTasks || {})[c]; });
+      fillSelect($('tlDirectHelperTaskSelect'), codes.map(function (c) { return '<option value="' + esc(c) + '">' + esc(c) + ' - ' + esc(stationName(st, c)) + '</option>'; }).join(''));
+      fillSelect($('annTargetSelect'), '<option value="ALL">Everyone</option>' + Object.keys(st.taskDefinitions || {}).map(function (c) { return '<option value="' + esc(c) + '">' + esc(c) + ' - ' + esc(stationName(st, c)) + '</option>'; }).join(''));
+      fillSelect($('attEmpSelect'), emps.filter(function (w) { return lc(w.id) !== lc(me.id); }).map(function (w) {
+        return '<option value="' + esc(w.id) + '">' + esc(w.name) + ' [' + esc(st.attendance[w.id] || '') + ']</option>';
+      }).join(''));
+      $('annSendBtn').disabled = !active;
+
+      var mine = (st.announcements || []).filter(function (an) { return !an.ended && lc(an.senderId) === lc(me.id); });
+      setIfChanged($('annActiveList'), mine.map(function (an) {
+        return '<div class="p-2 bg-slate-900/80 border border-slate-700 rounded-xl text-[11px]"><div class="font-bold text-white break-words">' + esc(an.message) + '</div><div class="text-slate-400 mt-0.5">To ' + (an.target === 'ALL' ? 'Everyone' : esc(an.target)) + ' &bull; &#10004; ' + an.ackedCount + '/' + an.total + '</div></div>';
+      }).join(''));
+
+      var c = { Present: 0, AB: 0, LV: 0, WO: 0, EO: 0, late: 0 };
+      emps.forEach(function (w) { var s = st.attendance[w.id] || 'Present'; c[s] = (c[s] || 0) + 1; var d = (st.attendanceDetail || {})[w.id]; if (d && d.late) c.late++; });
+      setIfChanged($('attSummary'), [['Present', c.Present, 'text-emerald-300'], ['Absent', c.AB, 'text-rose-300'], ['Leave', c.LV, 'text-sky-300'], ['Week off', c.WO, 'text-slate-300'], ['Early out', c.EO, 'text-amber-300'], ['Late', c.late, 'text-amber-300']].map(function (x) {
+        return '<div class="bg-slate-900/80 border border-slate-700 rounded-xl py-1.5"><div class="text-sm font-black ' + x[2] + '">' + x[1] + '</div><div class="text-[9px] text-slate-400">' + x[0] + '</div></div>';
+      }).join(''));
+    }
+
+    function renderAllTasks(st, me) {
+      var realDay = st.currentRealDay;
+      if (!S.rosterDay) S.rosterDay = realDay;
+      var isToday = S.rosterDay === realDay;
+      $('rosterDayBadge').textContent = S.rosterDay + (isToday ? ' (Today)' : ' (Plan)');
+      $('rosterDayButtons').innerHTML = DAYS.map(function (d) {
+        return '<button data-act="rosterDay" data-day="' + d + '" class="relative py-1.5 rounded-lg text-[10px] font-black ' + (d === S.rosterDay ? 'bg-sky-700 text-white' : 'bg-slate-900 text-slate-400 border border-slate-700') + '">' + d + (d === realDay ? '<span class="absolute top-0.5 right-0.5 w-1.5 h-1.5 rounded-full bg-emerald-400"></span>' : '') + '</button>';
+      }).join('');
+
+      var meName = me ? lc(me.name) : '';
+      var lb = st.sheetLeaderboard || [];
+      $('pdaNonSortLeaderboardContainer').innerHTML = lb.length ? lb.map(function (it, i) {
+        var medal = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : (i + 1) + '.';
+        var isMe = lc(it.empName) === meName;
+        return '<div class="flex items-center justify-between p-2 rounded-xl border ' + (isMe ? 'bg-sky-950/70 border-sky-600/60' : 'bg-slate-900/80 border-slate-800') + '"><div class="flex items-center gap-2 min-w-0"><span class="text-xs w-5 text-center shrink-0">' + medal + '</span><span class="text-xs font-bold text-white truncate">' + esc(it.empName) + '</span>' + (isMe ? '<span class="text-[9px] font-black px-1.5 rounded bg-sky-700 text-white shrink-0">You</span>' : '') + '</div>' +
+          '<div class="flex gap-1.5 shrink-0 ml-2"><span class="text-[10px] font-bold px-2 py-0.5 rounded bg-indigo-950 text-indigo-300 border border-indigo-800">' + it.awbs + ' AWB</span><span class="text-[10px] font-black px-2 py-0.5 rounded bg-emerald-950 text-emerald-300 border border-emerald-800">' + it.totalCount + ' Qty</span></div></div>';
+      }).join('') : '<div class="text-xs text-slate-400 italic py-1">No Non Sort putaways yet today.</div>';
+
+      var emps = st.employees || [], assigns = st.assignments || {}, att = st.attendance || {};
+      var codes = Object.keys(st.taskDefinitions || {});
+      var withPeople = [], empty = [];
+      var rows = {};
+      codes.forEach(function (code) {
+        var ws = emps.filter(function (e) {
+          if (isToday) { if (att[e.id] !== 'Present') return false; return curStation(assigns[e.id] || {}, '') === code; }
+          return e.plan && e.plan[S.rosterDay] === code;
+        });
+        rows[code] = ws; (ws.length ? withPeople : empty).push(code);
+      });
+      var html = '';
+      withPeople.concat(empty).forEach(function (code) {
+        var ws = rows[code];
+        html += '<div class="bg-slate-800/90 border border-slate-700 rounded-2xl p-3.5 shadow-md"><div class="flex items-center justify-between ' + (ws.length ? 'mb-2.5 pb-2 border-b border-slate-700/70' : '') + '"><div class="flex items-center gap-2"><span class="text-[10px] font-black px-2 py-0.5 rounded-md text-white ' + stationBg(st, code) + '">' + esc(code) + '</span><span class="text-xs font-black text-white">' + esc(stationName(st, code)) + '</span></div><span class="text-[10px] font-black px-2.5 py-0.5 rounded-full bg-slate-900 text-slate-300 border border-slate-700">' + ws.length + '</span></div>';
+        ws.forEach(function (w) {
+          var a = assigns[w.id] || {};
+          var isMe = me && lc(w.id) === lc(me.id);
+          var tags = '';
+          if (isToday && a.isHelping) tags += '<span class="text-[9px] font-black px-1.5 rounded-full bg-amber-500 text-slate-950">Helper</span>';
+          if (isToday && a.swappedFrom) tags += '<span class="text-[9px] font-black px-1.5 rounded-full bg-indigo-500 text-white">Covering</span>';
+          var right = isToday ? (a.onBreak ? '<span class="text-[10px] font-bold text-amber-400">On break</span>' : '<span class="text-[10px] text-slate-400">Assigned</span>') : '<span class="text-[10px] text-slate-400">Planned</span>';
+          html += '<div class="flex items-center justify-between text-xs py-1"><div class="flex items-center gap-1.5 min-w-0"><span class="font-bold truncate ' + (isMe ? 'text-sky-300' : 'text-slate-100') + '">' + esc(w.name) + (isMe ? ' (You)' : '') + '</span>' + tags + '</div>' + right + '</div>';
+        });
+        html += '</div>';
+      });
+      // off groups
+      function group(title, list, cls) {
+        if (!list.length) return '';
+        return '<div class="bg-slate-800/70 border border-slate-700 rounded-2xl p-3.5"><div class="text-[10px] font-black uppercase tracking-wider ' + cls + ' mb-1.5">' + title + ' (' + list.length + ')</div>' +
+          list.map(function (x) { return '<div class="text-xs text-slate-200 py-0.5">' + esc(x) + '</div>'; }).join('') + '</div>';
+      }
+      var wo, lv, eo;
+      if (isToday) {
+        wo = emps.filter(function (e) { return att[e.id] === 'WO'; }).map(function (e) { return e.name; });
+        lv = emps.filter(function (e) { return att[e.id] === 'LV' || att[e.id] === 'AB'; }).map(function (e) { return e.name + (att[e.id] === 'AB' ? ' (Absent)' : ' (Leave)'); });
+        eo = emps.filter(function (e) { return att[e.id] === 'EO'; }).map(function (e) { var d = (st.attendanceDetail || {})[e.id]; return e.name + (d && d.left ? ' - left ' + d.left.time : ''); });
+      } else {
+        wo = emps.filter(function (e) { return e.plan && e.plan[S.rosterDay] === 'WO'; }).map(function (e) { return e.name; }); lv = []; eo = [];
+      }
+      html += group('Week off', wo, 'text-slate-400') + group('Leave / Absent', lv, 'text-rose-300') + group('Left early', eo, 'text-amber-300');
+      setIfChanged($('allTasksListContainer'), html);
+    }
+
+    // ---------- send-helper modal ----------
+    function openSendHelper(helpId) {
+      var st = S.state; if (!st) return;
+      var req = (st.activeHelpRequests || []).filter(function (r) { return r.id === helpId; })[0];
+      if (!req) return;
+      S.sendHelperFor = helpId;
+      $('sendHelperSub').textContent = req.empName + ' at ' + req.location + ' (' + req.station + ')';
+      var list = (st.employees || []).filter(function (w) {
+        var a = st.assignments[w.id] || {};
+        return st.attendance[w.id] === 'Present' && !a.onBreak && lc(w.id) !== lc(req.empId) && lc(w.id) !== lc(S.empId);
+      });
+      $('sendHelperList').innerHTML = list.length ? list.map(function (w) {
+        var a = st.assignments[w.id] || {};
+        return '<div data-act="pickHelper" data-id="' + esc(w.id) + '" class="p-2.5 flex items-center justify-between cursor-pointer active:bg-sky-900/40"><span class="text-xs font-bold text-white truncate">' + esc(w.name) + '</span><span class="text-[10px] font-black px-2 py-0.5 rounded text-white ' + stationBg(st, curStation(a, '')) + '">' + esc(curStation(a, '')) + '</span></div>';
+      }).join('') : '<div class="p-4 text-center text-slate-500 text-xs">No helpers available.</div>';
+      show('sendHelperModal', true); lockScroll();
+    }
+    function closeSendHelper() { show('sendHelperModal', false); lockScroll(); }
+
+    // ---------- click delegation ----------
+    function actKey(t) {
+      return ['data-act', 'data-id', 'data-k', 'data-loc', 'data-tab', 'data-day', 'data-reason', 'data-sort'].map(function (n) { return t.getAttribute(n) || ''; }).join('|');
+    }
+    function actAt(x, y) { var e = document.elementFromPoint(x, y); return e && e.closest ? e.closest('[data-act]') : null; }
+    // Touch: fire on finger-up, matched by key (not by node), so a re-render between down and up never swallows the tap.
+    var PTR = null, ptrFired = { key: '', ts: 0 };
+    document.addEventListener('pointerdown', function (ev) {
+      if (ev.pointerType === 'mouse' || (ev.button != null && ev.button > 0)) return;
+      var t = ev.target.closest ? ev.target.closest('[data-act]') : null;
+      PTR = t ? { key: actKey(t), x: ev.clientX, y: ev.clientY, ts: Date.now(), id: ev.pointerId } : null;
+    }, { passive: true });
+    document.addEventListener('pointercancel', function () { PTR = null; }, { passive: true });
+    document.addEventListener('pointerup', function (ev) {
+      var d = PTR; PTR = null;
+      if (!d || d.id !== ev.pointerId) return;
+      if (Math.abs(ev.clientX - d.x) > 12 || Math.abs(ev.clientY - d.y) > 12 || Date.now() - d.ts > 1500) return;
+      var t = actAt(ev.clientX, ev.clientY);
+      if (!t || actKey(t) !== d.key) return;
+      ptrFired = { key: d.key, ts: Date.now() };
+      unlockAudio(); onTap(t);
+    }, { passive: true });
+    document.addEventListener('click', function (ev) {
+      unlockAudio();
+      var t = ev.target.closest ? ev.target.closest('[data-act]') : null;
+      if (!t) return;
+      if (ptrFired.key && Date.now() - ptrFired.ts < 700 && actKey(t) === ptrFired.key) { ptrFired.key = ''; return; }
+      onTap(t);
+    });
+    function onTap(t) {
+      var a = t.getAttribute('data-act'), id = t.getAttribute('data-id');
+      switch (a) {
+        case 'enableAlerts': enableAlerts(); break;
+        case 'logout': doLogout(''); break;
+        case 'tab': S.tab = t.getAttribute('data-tab'); render(); break;
+        case 'rosterDay': S.rosterDay = t.getAttribute('data-day'); render(); break;
+        case 'pickWorker': openPassword(id); break;
+        case 'closePassword': closePassword(); break;
+        case 'submitPassword': submitPassword(); break;
+        case 'ackSummon': act('pdaAcknowledgeBell', [S.empId], 'Acknowledged'); break;
+        case 'dismissMove': var m = S.state && findMe(S.state) && ((S.state.assignments || {})[findMe(S.state).id] || {}).moveNote; if (m) store('pda_move_seen', m.id); render(); break;
+        case 'ackAnn': act('ackAnnouncement', [S.empId, id], 'Thanks', 'ack-' + id); break;
+        case 'breakStart': act('pdaSetBreakAction', [S.empId, 'start'], 'Break started'); break;
+        case 'breakEnd': act('pdaSetBreakAction', [S.empId, 'end'], function (r) { return r.overtimeMins > 0 ? 'Break ended (+' + r.overtimeMins + ' min overtime logged)' : 'Break completed on time'; }); break;
+        case 'openHelp': helpPhotoReset(); S.helpReason = ''; renderReasonChips(); show('helpLocationModal', true); lockScroll(); break;
+        case 'pickReason': S.helpReason = S.helpReason === t.getAttribute('data-reason') ? '' : t.getAttribute('data-reason'); renderReasonChips(); break;
+        case 'cycleLang': var li = 0; LANGS.forEach(function (x, i) { if (x[0] === S.lang) li = i; }); S.lang = LANGS[(li + 1) % LANGS.length][0]; store('pda_lang', S.lang); applyPrefs(); S.state && render(); break;
+        case 'refreshDevices': loadDevices(true); break;
+        case 'cycleFont': S.fs = (S.fs + 1) % 4; store('pda_fs', String(S.fs)); applyPrefs(); break;
+        case 'openProd': openProd(); break;
+        case 'closeProd': show('prodModal', false); lockScroll(); break;
+        case 'prodPrev': if (P.date) { P.date = shiftDate(P.date, -1); $('prodDate').value = P.date; loadProd(); } break;
+        case 'prodNext': if (P.date) { P.date = shiftDate(P.date, 1); $('prodDate').value = P.date; loadProd(); } break;
+        case 'prodTab': P.tab = t.getAttribute('data-tab'); P.open = ''; renderProd(); if (P.tab === 'board') loadBoard(); break;
+        case 'prodPeriod': P.period = parseInt(t.getAttribute('data-sort'), 10) === 30 ? 30 : 7; loadBoard(); break;
+        case 'prodSort': P.sort = t.getAttribute('data-sort'); P.open = ''; renderProd(); break;
+        case 'prodOpen': P.open = P.open === t.getAttribute('data-k') ? '' : t.getAttribute('data-k'); renderProd(); break;
+        case 'closeHelp': show('helpLocationModal', false); lockScroll(); break;
+        case 'sendHelp':
+          if (S.helpImg && S.helpImg.up === 'busy') { toast('Photo is still uploading...'); break; }
+          show('helpLocationModal', false); lockScroll(); act('pdaRaiseHelpRequest', [S.empId, t.getAttribute('data-loc'), S.helpReason, (S.helpImg && S.helpImg.id) || ''], 'Help alert sent'); S.helpReason = ''; helpPhotoReset(); break;
+        case 'helpPhotoClear': helpPhotoReset(); break;
+        case 'photoOpen': $('photoViewImg').src = id; show('photoView', true); lockScroll(); break;
+        case 'photoClose': show('photoView', false); $('photoViewImg').removeAttribute('src'); lockScroll(); break;
+        case 'cancelMyHelp': var mh = (S.state.activeHelpRequests || []).filter(function (r) { return lc(r.empId) === lc(S.empId); })[0]; if (mh) act('resolveHelpRequest', [mh.id], 'Help request cancelled'); break;
+        case 'acceptHelp': act('flAcceptHelpRequest', [id, S.empId], 'Help call accepted', 'acc-' + id); break;
+        case 'clearHelp': act('resolveHelpRequest', [id], 'Help call cleared', 'clr-' + id); break;
+        case 'openSendHelper': openSendHelper(id); break;
+        case 'closeSendHelper': closeSendHelper(); break;
+        case 'pickHelper': closeSendHelper(); act('dispatchHelperToHelpCall', [S.sendHelperFor, id], function (r) { return (r.helperName || 'Helper') + ' sent'; }); break;
+        case 'ring':
+          var tgt = $('tlSummonTargetSelect').value;
+          if (!tgt) { toast('Select a colleague first.'); break; }
+          act('pdaRingWorkerBell', [tgt, $('tlSummonReasonSelect').value, $('tlProfileName').textContent], 'Bell rung. Colleague terminal is buzzing.'); break;
+        case 'deployHelper':
+          var w = $('tlDirectHelperWorkerSelect').value, tk = $('tlDirectHelperTaskSelect').value;
+          if (!w || !tk) { toast('Select a colleague and a line.'); break; }
+          act('pdaDeployHelperDirect', [w, tk], 'Deployed as helper to ' + tk); break;
+        case 'noop': break;
+        case 'tlTab': bcInit(); S.tlTab = t.getAttribute('data-tab'); render(); break;
+        case 'bcTarget':
+          bcInit(); var kk = t.getAttribute('data-k');
+          if (kk === 'ALL') { S.bc.all = true; S.bc.lines = {}; S.bc.ids = {}; S.bc.people = false; }
+          else if (kk === 'PEOPLE') { S.bc.people = !S.bc.people; }
+          else { S.bc.lines[kk] = !S.bc.lines[kk]; }
+          S.bc.all = !bcChosenLines().length && !bcChosenIds().length; renderBcCompose(S.state); break;
+        case 'bcPerson': bcInit(); S.bc.ids[id] = !S.bc.ids[id]; S.bc.all = !bcChosenLines().length && !bcChosenIds().length; renderBcCompose(S.state); break;
+        case 'bcPrio': bcInit(); S.bc.prio = t.getAttribute('data-k') === 'urgent' ? 'urgent' : 'normal'; renderBcCompose(S.state); break;
+        case 'bcPhotoClear': bcInit(); S.bc.imgData = ''; S.bc.imgId = ''; S.bc.up = ''; $('bcFile').value = ''; show('bcPreviewWrap', false); show('bcPhotoClear', false); $('bcPreview').removeAttribute('src'); renderBcCompose(S.state); break;
+        case 'bcSend': sendBc(); break;
+        case 'bcAck': act('ackBroadcast', [S.empId, id, t.getAttribute('data-k')], 'Thanks', 'bc-' + id); break;
+        case 'bcZoom': S.bcZoom = !S.bcZoom; render(); break;
+        case 'bcOpen': S.bcView = id; render(); break;
+        case 'bcClose': S.bcView = ''; render(); break;
+        case 'bcUnseen': bcInit(); S.bcUnseenOpen[id] = !S.bcUnseenOpen[id]; render(); break;
+        case 'bcRemind': act('remindBroadcast', [id], 'Reminder sent', 'bcr-' + id); break;
+        case 'bcEnd': act('endBroadcast', [id], 'Message ended', 'bce-' + id); break;
+        case 'ccOpen': S.sheet = { id: id, mode: 'main' }; render(); break;
+        case 'ccClose': S.sheet = null; render(); break;
+        case 'ccMode': if (S.sheet) { S.sheet.mode = t.getAttribute('data-k'); render(); } break;
+        case 'ccMove': S.sheet = null; act('tlAction', ['swap', { empId: id, target: t.getAttribute('data-k') }], 'Moved to ' + t.getAttribute('data-k'), 'cc-' + id); render(); break;
+        case 'ccBreakStart': S.sheet = null; act('tlAction', ['breakStart', { empId: id }], 'Break started', 'cc-' + id); render(); break;
+        case 'ccBreakEnd': S.sheet = null; act('tlAction', ['breakEnd', { empId: id }], 'Break ended', 'cc-' + id); render(); break;
+        case 'ccHelper': S.sheet = null; act('tlAction', ['helperDeploy', { empId: id, target: t.getAttribute('data-k') }], 'Sent as helper to ' + t.getAttribute('data-k'), 'cc-' + id); render(); break;
+        case 'ccHelperBack': S.sheet = null; act('tlAction', ['helperRevert', { empId: id }], 'Returned to own line', 'cc-' + id); render(); break;
+        case 'ccRing': S.sheet = null; act('tlAction', ['ring', { empId: id, message: RING_REASONS[parseInt(t.getAttribute('data-k'), 10)] || RING_REASONS[0] }], 'Bell rung', 'cc-' + id); render(); break;
+        case 'ccAtt':
+          var ak = t.getAttribute('data-k'), at2 = $('ccAttTime') ? $('ccAttTime').value : '';
+          if ((ak === 'late' || ak === 'early') && !at2) { toast('Enter the time.'); break; }
+          S.sheet = null; act('tlAction', ['attendance', { empId: id, kind: ak, time: at2 }], 'Attendance updated', 'cc-' + id); render(); break;
+        case 'sendAnn':
+          var msg = $('annMessageInput').value.trim();
+          if (!msg) { toast('Write a message first.'); break; }
+          var me2 = findMe(S.state);
+          act('sendAnnouncement', [$('annTargetSelect').value, msg, me2 ? me2.name : '', S.empId], 'Announcement sent');
+          $('annMessageInput').value = ''; $('annCounter').textContent = '0 / 240'; break;
+        case 'applyAtt':
+          var emp = $('attEmpSelect').value, kind = $('attKindSelect').value, time = $('attTimeInput').value;
+          if (!emp) { toast('Select a colleague.'); break; }
+          if ((kind === 'late' || kind === 'early') && !time) { toast('Enter the time.'); break; }
+          var me3 = findMe(S.state);
+          act('tlSetAttendance', [emp, kind, time, me3 ? me3.name : ''], 'Attendance updated'); break;
+        case 'markAllPresent': act('tlMarkAllPresent', [], function (r) { return r.changed ? r.changed + ' colleague(s) marked present' : 'Everyone is already present'; }); break;
+        case 'nsRequest':
+          var awb = $('nsAwbInput').value.trim();
+          if (!awb) { toast('Enter or scan an AWB first.'); break; }
+          $('nsAwbInput').value = '';
+          act('pdaRequestNonSortCount', [S.empId, awb], 'AWB sent. Waiting for the TL count...'); break;
+        case 'nsSetCount':
+          var inp = document.getElementById('nsc-' + id);
+          var q = inp ? parseInt(inp.value, 10) : 0;
+          if (!(q >= 1)) { toast('Enter a quantity.'); break; }
+          act('tlSetNonSortCount', [id, q], 'Count sent', 'nsc-' + id); break;
+        case 'nsCancelTl': act('pdaCancelNonSort', [id], 'Request removed', 'nsx-' + id); break;
+        case 'nsCancelMine': act('pdaCancelNonSort', [id], 'Request removed', 'nsx-' + id); break;
+        case 'nsConfirm': act('pdaCompleteNonSortPutaway', [id], 'Putaway recorded. Leaderboard updated.', 'nsd-' + id); break;
+      }
+    }
+    document.addEventListener('touchstart', unlockAudio, { passive: true });
+    $('workerSearchInput').addEventListener('input', renderLoginList);
+    $('prodSearch').addEventListener('input', function () { P.q = this.value; renderProd(); });
+    $('prodDate').addEventListener('change', function () { if (this.value) { P.date = this.value; loadProd(); } });
+    $('pdaPasswordInput').addEventListener('keydown', function (e) { if (e.key === 'Enter') submitPassword(); });
+    $('helpFile').addEventListener('change', function () { onHelpFile(this.files && this.files[0]); });
+    $('myHelpFile').addEventListener('change', function () { var f = this.files && this.files[0]; this.value = ''; onMyHelpFile(f); });
+    $('bcMsg').addEventListener('input', function () { $('bcCounter').textContent = this.value.length + ' / 800'; });
+    $('bcFile').addEventListener('change', function () { onBcFile(this.files && this.files[0]); });
+    $('bcPeopleSearch').addEventListener('input', function () { bcInit(); S.bc.q = this.value; renderBcCompose(S.state); });
+    $('annMessageInput').addEventListener('input', function () { $('annCounter').textContent = this.value.length + ' / 240'; });
+    document.addEventListener('visibilitychange', function () { if (!document.hidden) { acquireWake(); pollOnce(); } });
+
+    // ---------- boot ----------
+    window.addEventListener('online', function () { S.netFails = 0; updateNet(); flushQueue(); pollOnce(); });
+    window.addEventListener('offline', updateNet);
+    applyPrefs(); updateNet();
+    refreshAlertChip();
+    render();
+    loadLoginList();
+    if (S.token) { acquireWake(); }
+    setInterval(tickBreak, 1000);
+    pollLoop();
+  </script>
+</body>
+</html>

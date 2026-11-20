@@ -1,0 +1,1518 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Shift A Operations Dashboard</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/react@18.3.1/umd/react.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/@babel/standalone@7.24.7/babel.min.js"></script>
+  <style>
+    @keyframes redPulse { 0%,100% { box-shadow: 0 0 0 0 rgba(225,29,72,.55); } 50% { box-shadow: 0 0 0 7px rgba(225,29,72,0); } }
+    .pulse-red { animation: redPulse 1.8s infinite ease-in-out; }
+    body.modal-open { overflow: hidden; }
+    html { scroll-behavior: smooth; }
+    .box-scroll { scrollbar-width: thin; scrollbar-color: #cbd5e1 transparent; }
+    @keyframes boxFlash { 0% { box-shadow: 0 0 0 0 rgba(3,105,161,0); } 18% { box-shadow: 0 0 0 6px rgba(3,105,161,.45); } 100% { box-shadow: 0 0 0 0 rgba(3,105,161,0); } }
+    .box-flash { animation: boxFlash 1.6s ease-out 1; }
+    @keyframes riseIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+    .rise-in { animation: riseIn .28s ease-out both; }
+    body.dark { background: #0b1220 !important; color: #e2e8f0; }
+    body.dark .bg-white { background: #131c31 !important; }
+    body.dark .bg-slate-50, body.dark .bg-slate-100 { background: #18233d !important; }
+    body.dark .bg-amber-50, body.dark .bg-amber-100 { background: #2d2610 !important; }
+    body.dark .bg-rose-50, body.dark .bg-rose-100 { background: #34141c !important; }
+    body.dark .bg-emerald-50, body.dark .bg-emerald-100 { background: #10291f !important; }
+    body.dark .bg-sky-50, body.dark .bg-sky-100 { background: #0f2a3f !important; }
+    body.dark [class*='bg-rose-50/'] { background: #34141c !important; }
+    body.dark [class*='bg-amber-50/'] { background: #2d2610 !important; }
+    body.dark [class*='bg-emerald-50/'], body.dark [class*='bg-sky-50/'] { background: #10291f !important; }
+    body.dark .text-slate-900, body.dark .text-slate-800, body.dark .text-slate-700 { color: #e2e8f0 !important; }
+    body.dark .text-slate-600, body.dark .text-slate-500, body.dark .text-slate-400 { color: #9fb0c8 !important; }
+    body.dark .text-rose-900, body.dark .text-rose-700, body.dark .text-emerald-900, body.dark .text-emerald-700, body.dark .text-amber-900, body.dark .text-amber-800, body.dark .text-sky-900 { color: #f1f5f9 !important; }
+    body.dark .border-slate-100, body.dark .border-slate-200, body.dark .border-slate-300 { border-color: #2a3857 !important; }
+    body.dark input, body.dark select, body.dark textarea { background: #0f172a !important; color: #e2e8f0 !important; border-color: #2a3857 !important; }
+    body.tv { zoom: 1.25; }
+    @media print {
+      body * { visibility: hidden !important; }
+      .print-area, .print-area * { visibility: visible !important; }
+      .print-area { position: absolute; left: 0; top: 0; width: 100%; padding: 16px; background: #fff !important; color: #000 !important; }
+    }
+    @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } .box-flash, .rise-in { animation: none; } }
+  </style>
+</head>
+<body class="bg-slate-100 text-slate-800 antialiased font-sans">
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState, useEffect, useMemo, useRef, useCallback } = React;
+
+    const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+    const PRIORITY = ['FT', 'PK', 'BT'];
+    const AFTER_ORDER = ['DIS', 'FL', 'CIR', 'HV', 'ST', 'TL', 'CON', 'LA'];
+    const OVERVIEW_ORDER = ['FT', 'PK', 'BT', 'DIS', 'FL', 'CIR', 'HV', 'ST', 'TL', 'CON', 'LA'];
+    const COLOR_CHOICES = [
+      { label: 'Slate', headerBg: 'bg-slate-600', pillBg: 'bg-slate-100 text-slate-800 border-slate-200' },
+      { label: 'Blue', headerBg: 'bg-sky-700', pillBg: 'bg-sky-100 text-sky-800 border-sky-200' },
+      { label: 'Emerald', headerBg: 'bg-emerald-700', pillBg: 'bg-emerald-100 text-emerald-800 border-emerald-200' },
+      { label: 'Amber', headerBg: 'bg-amber-600', pillBg: 'bg-amber-100 text-amber-800 border-amber-200' },
+      { label: 'Rose', headerBg: 'bg-rose-700', pillBg: 'bg-rose-100 text-rose-800 border-rose-200' },
+      { label: 'Violet', headerBg: 'bg-violet-700', pillBg: 'bg-violet-100 text-violet-800 border-violet-200' }
+    ];
+    const SUMMON_PRESETS = ['Report to TL desk immediately', 'Check your line right now', 'Break ended - return to line', 'Call your Floor Lead now'];
+
+    const lc = (s) => String(s == null ? '' : s).trim().toLowerCase();
+
+    function gs(name, args, ok, fail) {
+      if (!(window.google && google.script && google.script.run)) { if (fail) fail('Not connected to the server.'); return; }
+      const r = google.script.run
+        .withSuccessHandler((res) => ok && ok(res))
+        .withFailureHandler((e) => fail && fail((e && e.message) || 'Network problem.'));
+      r[name].apply(r, args);
+    }
+
+    // ---------- audio ----------
+    let audioCtx = null;
+    function unlockAudio() {
+      try {
+        if (!audioCtx) { const AC = window.AudioContext || window.webkitAudioContext; if (AC) audioCtx = new AC(); }
+        if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
+      } catch (e) {}
+    }
+    function beep(n) {
+      try {
+        unlockAudio(); if (!audioCtx) return;
+        const t0 = audioCtx.currentTime;
+        for (let i = 0; i < (n || 3); i++) {
+          const o = audioCtx.createOscillator(), g = audioCtx.createGain();
+          o.type = 'square'; o.frequency.setValueAtTime(1000, t0 + i * 0.25);
+          g.gain.setValueAtTime(0.25, t0 + i * 0.25); g.gain.exponentialRampToValueAtTime(0.01, t0 + i * 0.25 + 0.2);
+          o.connect(g); g.connect(audioCtx.destination); o.start(t0 + i * 0.25); o.stop(t0 + i * 0.25 + 0.2);
+        }
+      } catch (e) {}
+    }
+    document.addEventListener('click', unlockAudio);
+    document.addEventListener('touchstart', unlockAudio, { passive: true });
+
+    function fmtMMSS(ms) { ms = Math.max(0, ms); let s = Math.floor(ms / 1000); const m = Math.floor(s / 60); s = s % 60; return String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0'); }
+    function riyadhHHMM(ms) {
+      try { return new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Riyadh', hour: '2-digit', minute: '2-digit', hour12: false }).format(new Date(ms)); }
+      catch (e) { return ''; }
+    }
+    function curStation(a, plan) {
+      if (!a) return plan || '';
+      if (a.activeStation && a.activeStation !== 'None') return a.activeStation;
+      if (a.task1 && a.task1 !== 'None') return a.task1;
+      return plan || '';
+    }
+
+    // ---------- small UI pieces ----------
+    function Modal({ title, onClose, children, wide, size }) {
+      return (
+        <div className="fixed inset-0 z-[70] bg-slate-900/50 flex items-center justify-center p-4" onClick={onClose}>
+          <div className={'bg-white rounded-2xl shadow-2xl w-full ' + (size === 'xxl' ? 'max-w-5xl' : size === 'xl' ? 'max-w-2xl' : wide ? 'max-w-lg' : 'max-w-sm') + ' max-h-[90vh] overflow-y-auto'} onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-4 py-3 border-b border-slate-200">
+              <h3 className="text-sm font-bold text-slate-800">{title}</h3>
+              <button onClick={onClose} className="text-slate-400 hover:text-slate-700 text-lg leading-none px-1">&times;</button>
+            </div>
+            <div className="p-4">{children}</div>
+          </div>
+        </div>
+      );
+    }
+    const Btn = ({ onClick, children, tone = 'slate', disabled, small, title }) => {
+      const tones = {
+        slate: 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50',
+        blue: 'bg-sky-700 text-white border-sky-700 hover:bg-sky-800',
+        green: 'bg-emerald-700 text-white border-emerald-700 hover:bg-emerald-800',
+        amber: 'bg-amber-500 text-white border-amber-500 hover:bg-amber-600',
+        rose: 'bg-rose-600 text-white border-rose-600 hover:bg-rose-700',
+        ghost: 'bg-transparent text-slate-600 border-transparent hover:bg-slate-100'
+      };
+      return <button title={title} disabled={disabled} onClick={onClick} className={'border rounded-lg font-semibold transition disabled:opacity-40 disabled:cursor-not-allowed ' + (small ? 'px-2 py-1 text-[11px]' : 'px-3 py-1.5 text-xs') + ' ' + tones[tone]}>{children}</button>;
+    };
+
+    const LinkBtn = ({ onClick, tone = 'text-slate-500', disabled, children }) => <button disabled={disabled} onClick={onClick} className={'text-[10px] font-bold hover:underline disabled:opacity-40 disabled:no-underline ' + tone}>{children}</button>;
+    const CHIP_TONES = {
+      slate: 'bg-slate-50 border-slate-200 text-slate-700', emerald: 'bg-emerald-50 border-emerald-200 text-emerald-800',
+      rose: 'bg-rose-50 border-rose-200 text-rose-700', amber: 'bg-amber-50 border-amber-300 text-amber-800', sky: 'bg-sky-50 border-sky-200 text-sky-800'
+    };
+    const Chip = ({ tone = 'slate', children, className = '' }) => <span className={'inline-flex items-center gap-1.5 text-[11px] font-semibold border rounded-lg px-2 py-1 whitespace-nowrap ' + CHIP_TONES[tone] + ' ' + className}>{children}</span>;
+    function fmt12(ms) {
+      try { return new Intl.DateTimeFormat('en-US', { timeZone: 'Asia/Riyadh', hour: '2-digit', minute: '2-digit', hour12: true }).format(new Date(ms)); }
+      catch (e) { return ''; }
+    }
+
+    // ---------- Non Sort popup ----------
+    function NsReqCard({ r, busy, run }) {
+      const [qty, setQty] = useState('');
+      const valid = parseInt(qty, 10) >= 1;
+      const send = () => { if (valid && !busy) run('nsSetCount', { id: r.id, count: parseInt(qty, 10) }, 'Count ' + qty + ' sent to ' + r.empName); };
+      return (
+        <div className={'rounded-xl border px-3 py-2.5 ' + (r.status === 'pending' ? 'bg-sky-50 border-sky-200' : 'bg-emerald-50 border-emerald-200')}>
+          <div className="flex items-start justify-between gap-2">
+            <div className="min-w-0">
+              <div className="text-xs font-bold text-slate-800 truncate">{r.empName}</div>
+              <div className="text-[11px] font-mono text-slate-600 break-all">AWB {r.awb}</div>
+              <div className="text-[10px] text-slate-400">{r.timeStr}</div>
+            </div>
+            <button disabled={busy} onClick={() => run('nsCancel', { id: r.id }, 'Request removed')} title="Remove request" className="text-slate-400 hover:text-rose-600 text-lg leading-none px-1 disabled:opacity-40">&times;</button>
+          </div>
+          {r.status === 'pending' ? (
+            <div className="flex items-center gap-2 mt-2">
+              <input type="number" min="1" inputMode="numeric" value={qty} onChange={(e) => setQty(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') send(); }} placeholder="Enter Qty" className="flex-1 min-w-0 border border-sky-300 rounded-lg px-3 py-1.5 text-xs bg-white outline-none focus:border-sky-600" />
+              <Btn tone="blue" disabled={busy || !valid} onClick={send}>Send count</Btn>
+            </div>
+          ) : (
+            <div className="mt-2 text-[11px] font-semibold text-emerald-800">Count sent: <b>{r.count} Qty</b> &middot; waiting for {r.empName} to confirm putaway</div>
+          )}
+        </div>
+      );
+    }
+    function NsPopup({ S, busy, run, close }) {
+      const reqs = S.nonSortRequests || [];
+      const board = S.sheetLeaderboard || [];
+      const pending = reqs.filter((r) => r.status === 'pending');
+      const ready = reqs.filter((r) => r.status !== 'pending');
+      const totalAwb = board.reduce((n, x) => n + (x.awbs || 0), 0), totalQty = board.reduce((n, x) => n + (x.totalCount || 0), 0);
+      const medal = (i) => (i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : String(i + 1));
+      return (
+        <Modal title={'📦 Non Sort'} onClose={close} size="xl">
+          <div className="grid grid-cols-3 gap-2 mb-4">
+            <div className={'rounded-xl border px-3 py-2 ' + (pending.length ? 'bg-rose-50 border-rose-200' : 'bg-slate-50 border-slate-200')}><div className="text-[10px] uppercase font-semibold text-slate-500">Need count</div><div className={'text-xl font-bold ' + (pending.length ? 'text-rose-700' : 'text-slate-700')}>{pending.length}</div></div>
+            <div className="rounded-xl border bg-indigo-50 border-indigo-200 px-3 py-2"><div className="text-[10px] uppercase font-semibold text-slate-500">AWBs today</div><div className="text-xl font-bold text-indigo-700">{totalAwb}</div></div>
+            <div className="rounded-xl border bg-emerald-50 border-emerald-200 px-3 py-2"><div className="text-[10px] uppercase font-semibold text-slate-500">Qty today</div><div className="text-xl font-bold text-emerald-700">{totalQty}</div></div>
+          </div>
+
+          <h4 className="text-[11px] font-bold uppercase tracking-wide text-slate-600 mb-2">Waiting for your count ({pending.length})</h4>
+          <div className="space-y-2 mb-4">
+            {pending.length === 0 && <div className="text-[11px] text-slate-400 italic border border-dashed border-slate-300 rounded-xl text-center py-4">No requests right now. When a CC scans an AWB it appears here.</div>}
+            {pending.map((r) => <NsReqCard key={r.id} r={r} busy={busy} run={run} />)}
+          </div>
+
+          {ready.length > 0 && (
+            <>
+              <h4 className="text-[11px] font-bold uppercase tracking-wide text-slate-600 mb-2">Count sent, waiting for putaway ({ready.length})</h4>
+              <div className="space-y-2 mb-4">{ready.map((r) => <NsReqCard key={r.id} r={r} busy={busy} run={run} />)}</div>
+            </>
+          )}
+
+          <h4 className="text-[11px] font-bold uppercase tracking-wide text-slate-600 mb-2">Leaderboard (today)</h4>
+          {board.length === 0 ? <div className="text-[11px] text-slate-400 italic">No Non Sort putaways yet today.</div> : (
+            <div className="border border-slate-200 rounded-xl overflow-hidden">
+              <table className="w-full text-xs">
+                <thead className="bg-slate-50 text-slate-500 text-[10px] uppercase"><tr><th className="text-left px-3 py-1.5 w-10">#</th><th className="text-left px-3 py-1.5">Name</th><th className="text-right px-3 py-1.5">AWBs</th><th className="text-right px-3 py-1.5">Qty</th></tr></thead>
+                <tbody>
+                  {board.map((it, i) => (
+                    <tr key={it.empName} className="border-t border-slate-100"><td className="px-3 py-1.5">{medal(i)}</td><td className="px-3 py-1.5 font-semibold">{it.empName}</td><td className="px-3 py-1.5 text-right text-indigo-700 font-semibold">{it.awbs}</td><td className="px-3 py-1.5 text-right text-emerald-700 font-bold">{it.totalCount}</td></tr>
+                  ))}
+                </tbody>
+                <tfoot className="bg-slate-50 font-bold"><tr className="border-t border-slate-200"><td className="px-3 py-1.5"></td><td className="px-3 py-1.5">Total</td><td className="px-3 py-1.5 text-right text-indigo-700">{totalAwb}</td><td className="px-3 py-1.5 text-right text-emerald-700">{totalQty}</td></tr></tfoot>
+              </table>
+            </div>
+          )}
+          <div className="text-[10px] text-slate-400 mt-2">Synced with the "non sort" sheet.</div>
+        </Modal>
+      );
+    }
+
+    // ---------- shift report (WhatsApp text / print) ----------
+    function lsGet(k) { try { return localStorage.getItem(k) || ''; } catch (e) { return ''; } }
+    function lsSet(k, v) { try { localStorage.setItem(k, v); } catch (e) {} }
+    function fmtSecsShort(n) { n = Math.round(Number(n) || 0); return n >= 60 ? Math.floor(n / 60) + 'm ' + (n % 60) + 's' : n + 's'; }
+    function lateList(S) {
+      const det = S.attendanceDetail || {};
+      return (S.employees || []).filter((e) => det[e.id] && det[e.id].late).map((e) => ({ id: e.id, name: e.name, time: det[e.id].late.time, mins: det[e.id].late.mins })).sort((a, b) => b.mins - a.mins);
+    }
+    function prodLine(r) {
+      if (!r || !r.success || !r.found) return '';
+      const ppl = (r.people || []).filter((p) => p.hours >= 2 && p.ach != null);
+      if (!ppl.length) return '';
+      const by = ppl.slice().sort((a, b) => b.ach - a.ach);
+      const top = by[0], low = by.filter((p) => p.ok === false).slice(-3).reverse();
+      const on = ppl.filter((p) => p.ok).length;
+      return 'Productivity ' + r.date + ': top ' + top.name + ' (' + top.tph + ' TPH, ' + pctTxt(top.ach) + ' of target) | on target ' + on + '/' + ppl.length + (low.length ? ' | lowest: ' + low.map((p) => p.name + ' ' + pctTxt(p.ach)).join(', ') : '');
+    }
+    function buildReport(S, nowMs, prodRep) {
+      const emps = S.employees || [], att = S.attendance || {}, asg = S.assignments || {};
+      const cnt = { p: 0, a: 0, eo: 0, wo: 0 };
+      emps.forEach((e) => { const x = att[e.id]; if (x === 'Present') cnt.p++; else if (x === 'AB' || x === 'LV') cnt.a++; else if (x === 'EO') cnt.eo++; else if (x === 'WO') cnt.wo++; });
+      const done = emps.filter((e) => asg[e.id] && asg[e.id].breakStatus === 'completed').length;
+      const pend = emps.filter((e) => att[e.id] === 'Present' && asg[e.id] && asg[e.id].breakStatus === 'pending').length;
+      const brkNow = emps.filter((e) => att[e.id] === 'Present' && asg[e.id] && asg[e.id].onBreak).length;
+      const late = lateList(S);
+      const absent = emps.filter((e) => att[e.id] === 'AB' || att[e.id] === 'LV').map((e) => e.name);
+      const hs = S.helpStats || {};
+      const avg = hs.accepted ? fmtSecsShort(hs.totalMs / hs.accepted / 1000) : '-';
+      const ov = (S.overstayDone || 0) + (S.overstayBreaks || []).length;
+      const L = [];
+      L.push('*' + (S.shiftName || 'Shift A') + ' - ' + S.currentRealDay + ' ' + (S.currentDateStr || '') + '*  (' + fmt12(nowMs) + ')');
+      L.push('Present ' + cnt.p + ' | Absent ' + cnt.a + ' | Week off ' + cnt.wo + ' | Early out ' + cnt.eo);
+      L.push('Breaks: ' + done + ' done, ' + pend + ' pending, ' + brkNow + ' on break now');
+      L.push('Break overstays: ' + ov + ((S.overstayBreaks || []).length ? ' (' + S.overstayBreaks.length + ' still over)' : ''));
+      L.push('Help calls: raised ' + (hs.raised || 0) + ', accepted ' + (hs.accepted || 0) + ', avg response ' + avg + ', slowest ' + fmtSecsShort((hs.maxMs || 0) / 1000) + ', not accepted in 3+ min ' + (hs.escalated || 0));
+      L.push('Late (' + late.length + '): ' + (late.length ? late.map((l) => l.name + ' ' + l.time + ' (+' + l.mins + 'm)').join(', ') : 'none'));
+      L.push('Absent/Leave (' + absent.length + '): ' + (absent.length ? absent.join(', ') : 'none'));
+      const br = S.minStaffBreaches || [];
+      L.push('Min-staff breaches now: ' + (br.length ? br.map((b) => b.code + ' ' + b.active + '/' + b.min).join(', ') : 'none'));
+      const lines = Object.keys(S.taskDefinitions || {}).map((c) => { const n = emps.filter((e) => att[e.id] === 'Present' && curStation(asg[e.id], '') === c).length; return n ? c + ' ' + n : ''; }).filter(Boolean);
+      L.push('Active by line: ' + lines.join(' | '));
+      const pl = prodLine(prodRep); if (pl) L.push(pl);
+      return L.join('\n');
+    }
+    function copyText(t, done) {
+      const fb = () => { try { const ta = document.createElement('textarea'); ta.value = t; ta.style.position = 'fixed'; ta.style.opacity = '0'; document.body.appendChild(ta); ta.select(); const ok = document.execCommand('copy'); document.body.removeChild(ta); done(!!ok); } catch (e) { done(false); } };
+      try { if (navigator.clipboard && navigator.clipboard.writeText) { navigator.clipboard.writeText(t).then(() => done(true), fb); return; } } catch (e) {}
+      fb();
+    }
+    function ReportPopup({ S, close, nowSrv, toast }) {
+      const [prodRep, setProdRep] = useState(null);
+      useEffect(() => { gs('getProductivityReport', [window.__dashToken || '', '', false], (r) => setProdRep(r), () => {}); }, []);
+      const txt = buildReport(S, nowSrv(), prodRep);
+      return (
+        <Modal title={'📋 Shift report'} onClose={close} wide>
+          <div className="print-area"><pre className="whitespace-pre-wrap text-xs leading-relaxed font-sans bg-slate-50 border border-slate-200 rounded-lg p-3">{txt.replace(/\*/g, '')}</pre></div>
+          <div className="flex flex-wrap gap-2 mt-3">
+            <Btn tone="blue" onClick={() => copyText(txt, (ok) => toast(ok ? 'Report copied - paste it in WhatsApp' : 'Could not copy'))}>Copy text</Btn>
+            <Btn tone="green" onClick={() => { try { window.open('https://wa.me/?text=' + encodeURIComponent(txt), '_blank'); } catch (e) { toast('Could not open WhatsApp'); } }}>WhatsApp</Btn>
+            <Btn onClick={() => { try { window.print(); } catch (e) { toast('Print is not available here'); } }}>Print / Save PDF</Btn>
+          </div>
+        </Modal>
+      );
+    }
+    function LatePopup({ S, close }) {
+      const late = lateList(S);
+      const [trend, setTrend] = useState(null);
+      useEffect(() => { gs('getAttendanceTrend', [window.__dashToken || '', 7], (r) => setTrend(r || { success: false }), () => setTrend({ success: false })); }, []);
+      const rows = (trend && trend.rows) || [];
+      const mx = Math.max(1, ...rows.map((r) => r.present + r.absent + r.weekOff));
+      return (
+        <Modal title={'⏰ Late today (' + late.length + ')'} onClose={close} wide>
+          {late.length === 0 && <div className="text-xs text-slate-400 italic text-center py-3">Nobody is marked late today.</div>}
+          <div className="space-y-1.5">
+            {late.map((l) => (
+              <div key={l.id} className="flex items-center justify-between gap-2 border border-amber-200 bg-amber-50 rounded-lg px-3 py-1.5 text-xs">
+                <div className="min-w-0"><b>{l.name}</b> <span className="text-slate-400 font-mono">{l.id}</span></div>
+                <div className="font-bold text-amber-800 whitespace-nowrap">arrived {l.time} &middot; +{l.mins} min</div>
+              </div>
+            ))}
+          </div>
+          <h4 className="text-[11px] font-bold uppercase text-slate-500 mt-4 mb-1.5">Attendance trend (last 7 days)</h4>
+          {trend === null ? <div className="text-xs text-slate-400">Loading...</div> : !trend.success ? <div className="text-xs text-rose-600">{trend.error || 'Could not load the trend.'}</div> : rows.length === 0 ? <div className="text-xs text-slate-400 italic">No archived days yet - the trend fills in after each shift closes.</div> : (
+            <div className="space-y-1">
+              {rows.map((r) => (
+                <div key={r.date} className="flex items-center gap-2 text-[11px]">
+                  <span className="w-12 text-slate-500 font-mono">{r.date.slice(5)}</span>
+                  <div className="flex-1 flex h-4 rounded overflow-hidden bg-slate-100">
+                    <div className="bg-emerald-500" style={{ width: (r.present / mx * 100) + '%' }} title={'Present ' + r.present}></div>
+                    <div className="bg-rose-500" style={{ width: (r.absent / mx * 100) + '%' }} title={'Absent ' + r.absent}></div>
+                    <div className="bg-slate-400" style={{ width: (r.weekOff / mx * 100) + '%' }} title={'Week off ' + r.weekOff}></div>
+                  </div>
+                  <span className="w-40 text-slate-600">P {r.present} &middot; A {r.absent} &middot; Late {r.late}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </Modal>
+      );
+    }
+
+    // ---------- full line details popup (opened from the overview cards) ----------
+    function LineInfoPopup({ S, code, emps, att, asg, defs, nowSrv, close }) {
+      const d = defs[code] || {}; const now = nowSrv();
+      const realDay = S.currentRealDay;
+      const planOf = (e) => (e.plan && e.plan[realDay]) || 'PK';
+      const here = emps.filter((e) => att[e.id] === 'Present' && curStation(asg[e.id], '') === code);
+      const working = here.filter((e) => !(asg[e.id] || {}).onBreak);
+      const onBrk = here.filter((e) => (asg[e.id] || {}).onBreak);
+      const planned = emps.filter((e) => planOf(e) === code && att[e.id] !== 'WO');
+      const missing = planned.filter((e) => !here.some((h) => h.id === e.id));
+      const helpers = emps.filter((e) => att[e.id] === 'Present' && (asg[e.id] || {}).isHelping && (asg[e.id] || {}).originalStation === code);
+      const pend = here.filter((e) => (asg[e.id] || {}).breakStatus === 'pending' && !(asg[e.id] || {}).onBreak).length;
+      const done = here.filter((e) => (asg[e.id] || {}).breakStatus === 'completed').length;
+      const mn = (S.minStaff || {})[code] || 0;
+      const calls = (S.activeHelpRequests || []).filter((r) => r.station === code);
+      const det = S.attendanceDetail || {};
+      const lbl = { AB: 'Absent', LV: 'Leave', EO: 'Early out', WO: 'Week off' };
+      const Stat = ({ k, v, tone }) => <div className={'rounded-lg border px-2.5 py-1.5 text-center ' + (tone || 'bg-slate-50 border-slate-200')}><div className="text-base font-black leading-tight">{v}</div><div className="text-[10px] text-slate-500 font-semibold">{k}</div></div>;
+      return (
+        <Modal title={code + ' - ' + (d.name || code)} onClose={close} wide>
+          <div className="grid grid-cols-3 sm:grid-cols-6 gap-2 mb-3">
+            <Stat k="Planned" v={planned.length} />
+            <Stat k="Working now" v={working.length} tone={working.length < planned.length - onBrk.length ? 'bg-rose-50 border-rose-200' : 'bg-emerald-50 border-emerald-200'} />
+            <Stat k="On break" v={onBrk.length} tone="bg-amber-50 border-amber-200" />
+            <Stat k="Breaks done" v={done} />
+            <Stat k="Breaks pending" v={pend} />
+            <Stat k="Min alarm" v={mn || '-'} />
+          </div>
+          {calls.length > 0 && <div className="mb-3 space-y-1">{calls.map((r) => <div key={r.id} className={'text-xs rounded-lg px-3 py-1.5 border ' + (r.escalated ? 'bg-rose-600 text-white border-rose-900' : 'bg-rose-50 border-rose-300 text-rose-900')}>&#128680; <b>{r.empName}</b> needs help at {r.location}{r.reason ? ' - ' + r.reason : ''} &middot; {r.status === 'accepted' ? 'accepted by ' + r.acceptedBy : 'waiting ' + Math.floor((r.waitMs || 0) / 60000) + ' min'}{r.imageUrl ? <span className="ml-2"><PhotoThumb url={r.imageUrl} h="h-8" /></span> : null}</div>)}</div>}
+          <h4 className="text-[11px] font-bold uppercase text-slate-500 mb-1">Working now ({working.length})</h4>
+          <div className="space-y-1 mb-3">
+            {working.length === 0 && <div className="text-xs text-slate-400 italic">Nobody is working on this line right now.</div>}
+            {working.map((e) => { const a = asg[e.id] || {}; const l = (det[e.id] || {}).late; return (
+              <div key={e.id} className="flex items-center justify-between gap-2 border border-slate-200 rounded-lg px-3 py-1.5 text-xs">
+                <div className="min-w-0"><b>{e.name}</b> <span className="text-slate-400 font-mono">{e.id}</span></div>
+                <div className="flex flex-wrap gap-1 justify-end">
+                  {a.isHelping ? <span className="px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 border border-amber-200 text-[10px] font-semibold">Helper (base {a.originalStation})</span> : a.swappedFrom ? <span className="px-1.5 py-0.5 rounded bg-indigo-100 text-indigo-800 border border-indigo-200 text-[10px] font-semibold">Covering (plan {a.swappedFrom})</span> : <span className="px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 border border-slate-200 text-[10px] font-semibold">Primary</span>}
+                  {l && <span className="px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 border border-amber-200 text-[10px] font-semibold">Late {l.mins}m</span>}
+                  <span className={'px-1.5 py-0.5 rounded border text-[10px] font-semibold ' + (a.breakStatus === 'completed' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-slate-50 text-slate-500 border-slate-200')}>{a.breakStatus === 'completed' ? 'Break done' : 'Break pending'}</span>
+                </div>
+              </div>); })}
+          </div>
+          {onBrk.length > 0 && (<>
+            <h4 className="text-[11px] font-bold uppercase text-slate-500 mb-1">On break ({onBrk.length})</h4>
+            <div className="space-y-1 mb-3">{onBrk.map((e) => { const a = asg[e.id] || {}; const diff = a.breakEndTime - now; return (
+              <div key={e.id} className="flex items-center justify-between gap-2 border border-amber-200 bg-amber-50 rounded-lg px-3 py-1.5 text-xs"><div><b>{e.name}</b> <span className="text-slate-400 font-mono">{e.id}</span></div><div className={'font-mono font-bold ' + (diff < 0 ? 'text-rose-600' : 'text-amber-700')}>{diff < 0 ? 'overstay +' : ''}{fmtMMSS(Math.abs(diff))}</div></div>); })}</div>
+          </>)}
+          {missing.length > 0 && (<>
+            <h4 className="text-[11px] font-bold uppercase text-slate-500 mb-1">Planned for {code} but not here ({missing.length})</h4>
+            <div className="space-y-1 mb-3">{missing.map((e) => { const st = att[e.id]; const a = asg[e.id] || {}; return (
+              <div key={e.id} className="flex items-center justify-between gap-2 border border-slate-200 rounded-lg px-3 py-1.5 text-xs"><div><b>{e.name}</b> <span className="text-slate-400 font-mono">{e.id}</span></div><div className="text-slate-600 font-semibold">{st === 'Present' ? 'now on ' + curStation(a, '') + (a.isHelping ? ' (helper)' : '') : (lbl[st] || st)}</div></div>); })}</div>
+          </>)}
+          {helpers.length > 0 && (<>
+            <h4 className="text-[11px] font-bold uppercase text-slate-500 mb-1">Sent out as helpers ({helpers.length})</h4>
+            <div className="space-y-1">{helpers.map((e) => <div key={e.id} className="text-xs border border-slate-200 rounded-lg px-3 py-1.5"><b>{e.name}</b> &rarr; {curStation(asg[e.id], '')}</div>)}</div>
+          </>)}
+        </Modal>
+      );
+    }
+
+    // ---------- productivity (per task top 5, hour by hour, TPH) ----------
+    const prettyType = (t) => String(t || '').replace(/_/g, ' ');
+    const hourLbl = (h) => String(h).padStart(2, '0') + ':00';
+    function shiftDateStr(d, n) { const x = new Date(d + 'T00:00:00Z'); x.setUTCDate(x.getUTCDate() + n); return x.toISOString().slice(0, 10); }
+    const pctTxt = (a) => (a == null ? '-' : Math.round(a * 100) + '%');
+    const okCls = (ok) => (ok === false ? 'text-rose-600' : ok === true ? 'text-emerald-700' : 'text-slate-700');
+    // load a productivity endpoint; reloads silently (no "Loading...") when the sheet version changes
+    function useProd(op, key, args, ver, enabled) {
+      const [data, setData] = useState(null); const keyRef = useRef('');
+      useEffect(() => {
+        if (!enabled) return undefined;
+        let live = true; if (keyRef.current !== key) { setData(null); keyRef.current = key; }
+        gs(op, args, (r) => { if (live) setData(r || { success: false }); }, () => { if (live) setData((cur) => (cur && cur.success ? cur : { success: false, error: 'Network problem.' })); });
+        return () => { live = false; };
+      }, [key, ver, enabled]);
+      return data;
+    }
+    function gapVerdict(p) {
+      const g = (p.gaps || []).length; if (!g) return '';
+      const b = p.brk; if (!b) return 'no break data for this day';
+      const cover = (b.breakMins || 0) + (b.overstayMins || 0) + (b.lateMins || 0);
+      if (g * 60 <= cover + 20) return 'gap is about the same as break / late time';
+      return 'gap is MORE than break + late (' + cover + 'm) - check the reason';
+    }
+    function ProductivityPopup({ close, ver }) {
+      const [date, setDate] = useState('');
+      const [allShifts, setAllShifts] = useState(false);
+      const [sortBy, setSortBy] = useState('qty');
+      const [tab, setTab] = useState('tasks');
+      const [q, setQ] = useState('');
+      const [open, setOpen] = useState('');
+      const [task, setTask] = useState('');
+      const [period, setPeriod] = useState(7);
+      const tok = window.__dashToken || '';
+      const data = useProd('getProductivityReport', 'r|' + date + '|' + allShifts, [tok, date, allShifts], ver, true);
+      const curDate = date || (data && data.date) || '';
+      const board = useProd('getProductivityBoard', 'b|' + curDate + '|' + allShifts + '|' + period, [tok, curDate, period, allShifts], ver, tab === 'board');
+      const Row = ({ k, rank, name, qty, hours, tph, ok, badge, hoursList, sub }) => (
+        <div className={'border rounded-lg overflow-hidden ' + (ok === false ? 'border-rose-200' : 'border-slate-200')}>
+          <button onClick={() => setOpen(open === k ? '' : k)} className="w-full flex items-center gap-2 px-2.5 py-1.5 text-xs text-left hover:bg-slate-50 transition-colors">
+            <span className="w-5 text-center font-black text-slate-400">{rank}</span>
+            <span className="flex-1 min-w-0 truncate font-bold">{name} {badge}</span>
+            <span className="w-14 text-right font-black text-sky-700">{qty}</span>
+            <span className="w-12 text-right text-slate-500">{hours}h</span>
+            <span className={'w-16 text-right font-black ' + okCls(ok)}>{tph} <span className="text-[9px] font-bold text-slate-400">TPH</span></span>
+          </button>
+          {open === k && (
+            <div className="bg-slate-50 border-t border-slate-200 px-3 py-2">
+              {sub}
+              <div className="text-[10px] font-bold uppercase text-slate-400 mb-1">Hour by hour</div>
+              <div className="flex flex-wrap gap-1.5">{hoursList}</div>
+            </div>
+          )}
+        </div>
+      );
+      const hourChips = (list, showBy, gaps) => {
+        const items = list.map((x) => ({ h: x.h, x })).concat((gaps || []).map((h) => ({ h, gap: true }))).sort((a, b) => a.h - b.h);
+        return items.map((it) => it.gap ? (
+          <div key={'g' + it.h} className="bg-rose-50 border border-dashed border-rose-300 rounded-md px-2 py-1 text-[11px] text-rose-600"><b>{hourLbl(it.h)}</b> <span className="font-black">gap</span></div>
+        ) : (
+          <div key={it.h} className="bg-white border border-slate-200 rounded-md px-2 py-1 text-[11px]">
+            <b className="text-slate-700">{hourLbl(it.h)}</b> <span className="font-black text-sky-700">{it.x.qty}</span>
+            {showBy && it.x.by && Object.keys(it.x.by).length > 1 ? <div className="text-[9px] text-slate-500">{Object.keys(it.x.by).map((t) => prettyType(t) + ' ' + it.x.by[t]).join(' · ')}</div> : null}
+          </div>
+        ));
+      };
+      const people = ((data && data.people) || []).filter((p) => !q.trim() || (p.name + ' ' + p.id).toLowerCase().includes(q.trim().toLowerCase()));
+      const taskObj = task && data && data.tasks ? data.tasks.filter((t) => t.type === task)[0] : null;
+      const taskHead = (t, clickable) => (
+        <div className="mb-1.5">
+          <button disabled={!clickable} onClick={() => { setTask(t.type); setOpen(''); }} className={'w-full flex items-center justify-between text-left ' + (clickable ? 'hover:text-sky-700' : '')}>
+            <b className="text-sm capitalize">{prettyType(t.type)}{clickable ? ' ›' : ''}</b>
+            <span className="text-[11px] text-slate-500">{t.total} units &middot; {t.people} people</span>
+          </button>
+          {t.target ? <div className="text-[10px] text-slate-500">Target {t.target}/hr &middot; <b className={t.onTarget === t.people ? 'text-emerald-700' : 'text-rose-600'}>{t.onTarget} of {t.people} on target</b></div> : null}
+        </div>
+      );
+      const BoardCol = ({ title, list, kind }) => (
+        <div className="border border-slate-200 rounded-xl p-2.5">
+          <div className="text-sm font-black mb-1.5">{title}</div>
+          <div className="space-y-1">
+            {list.length === 0 && <div className="text-[11px] text-slate-400 italic">Not enough data yet.</div>}
+            {list.map((p, i) => (
+              <div key={p.id} className={'flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs ' + (i === 0 ? 'bg-amber-50 border border-amber-200' : 'border border-slate-200')}>
+                <span className="w-6 text-center text-base">{['🥇', '🥈', '🥉'][i] || <span className="text-[11px] font-black text-slate-400">{i + 1}</span>}</span>
+                <span className="flex-1 min-w-0 truncate font-bold">{p.name}</span>
+                <span className="text-[10px] text-slate-500 whitespace-nowrap">{p.days}d &middot; {p.hours}h &middot; {p.tph} TPH</span>
+                <span className={'w-14 text-right font-black ' + (kind === 'ach' ? okCls(p.ach >= 1) : 'text-sky-700')}>{kind === 'ach' ? pctTxt(p.ach) : p.total}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      );
+      return (
+        <Modal title={'📈 Productivity - ' + (data && data.date ? data.date : '...')} onClose={close} size="xxl">
+          <div className="flex flex-wrap items-center gap-2 mb-3 text-xs">
+            <Btn small onClick={() => curDate && setDate(shiftDateStr(curDate, -1))}>&#9664;</Btn>
+            <input type="date" value={curDate} onChange={(e) => e.target.value && setDate(e.target.value)} className="border border-slate-300 rounded-lg px-2 py-1 text-xs" />
+            <Btn small onClick={() => curDate && setDate(shiftDateStr(curDate, 1))}>&#9654;</Btn>
+            <label className="flex items-center gap-1 ml-1 text-slate-600"><input type="checkbox" checked={allShifts} onChange={(e) => setAllShifts(e.target.checked)} /> All shifts</label>
+            <div className="ml-auto flex gap-1.5">
+              <Btn small tone={tab === 'tasks' ? 'blue' : 'slate'} onClick={() => { setTab('tasks'); setTask(''); }}>Top 5 per task</Btn>
+              <Btn small tone={tab === 'people' ? 'blue' : 'slate'} onClick={() => setTab('people')}>Everyone</Btn>
+              <Btn small tone={tab === 'board' ? 'blue' : 'slate'} onClick={() => setTab('board')}>🏆 Best</Btn>
+            </div>
+          </div>
+          {data === null && tab !== 'board' && <div className="text-xs text-slate-400 py-6 text-center">Loading...</div>}
+          {data && !data.success && tab !== 'board' && <div className="text-xs text-rose-600 py-4 text-center">{data.error || 'Could not load productivity.'}</div>}
+          {data && data.success && !data.found && tab !== 'board' && <div className="text-xs text-slate-400 italic py-6 text-center">No productivity data for {data.date}{allShifts ? '' : ' (my shift)'}.</div>}
+          {data && data.success && data.found && tab === 'tasks' && !taskObj && (
+            <div>
+              <div className="flex items-center gap-1.5 mb-2 text-[11px] text-slate-500">Rank by:
+                <Btn small tone={sortBy === 'qty' ? 'blue' : 'slate'} onClick={() => setSortBy('qty')}>Quantity</Btn>
+                <Btn small tone={sortBy === 'tph' ? 'blue' : 'slate'} onClick={() => setSortBy('tph')}>TPH (min 2 hrs)</Btn>
+                <span className="ml-auto">TPH = units per active hour &middot; <span className="text-rose-600 font-bold">red</span> = below target &middot; tap a task name for everyone</span>
+              </div>
+              <div className="grid md:grid-cols-2 gap-3">
+                {data.tasks.map((t) => {
+                  const list = sortBy === 'qty' ? t.topQty : t.topTph;
+                  return (
+                    <div key={t.type} className="border border-slate-200 rounded-xl p-2.5">
+                      {taskHead(t, true)}
+                      <div className="space-y-1">
+                        {list.length === 0 && <div className="text-[11px] text-slate-400 italic">Nobody with 2+ active hours on this task.</div>}
+                        {list.map((p, i) => <Row key={t.type + p.id} k={t.type + p.id} rank={i + 1} name={p.name} qty={p.qty} hours={p.hours} tph={p.tph} ok={p.ok} hoursList={hourChips(p.perHour, false)} />)}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+          {data && data.success && data.found && tab === 'tasks' && taskObj && (
+            <div>
+              <div className="flex items-center gap-1.5 mb-2 text-[11px] text-slate-500">
+                <Btn small onClick={() => { setTask(''); setOpen(''); }}>&larr; All tasks</Btn>
+                Sort:
+                <Btn small tone={sortBy === 'qty' ? 'blue' : 'slate'} onClick={() => setSortBy('qty')}>Quantity</Btn>
+                <Btn small tone={sortBy === 'tph' ? 'blue' : 'slate'} onClick={() => setSortBy('tph')}>TPH</Btn>
+              </div>
+              <div className="border border-slate-200 rounded-xl p-2.5">
+                {taskHead(taskObj, false)}
+                <div className="space-y-1">
+                  {taskObj.all.slice().sort((a, b) => (sortBy === 'tph' ? b.tph - a.tph : b.qty - a.qty)).map((p, i) => (
+                    <Row key={'a' + p.id} k={'a' + p.id} rank={i + 1} name={p.name} qty={p.qty} hours={p.hours} tph={p.tph} ok={p.ok} hoursList={hourChips(p.perHour, false)} />
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+          {data && data.success && data.found && tab === 'people' && (
+            <div>
+              <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search name or ID..." className="w-full border border-slate-300 rounded-lg px-3 py-1.5 text-xs mb-2" />
+              <div className="space-y-1">
+                {people.map((p, i) => (
+                  <Row key={'p' + p.id} k={'p' + p.id} rank={i + 1} name={p.name} qty={p.total} hours={p.hours} tph={p.tph} ok={p.ok}
+                    badge={<span>{p.ach != null ? <span className={'text-[10px] font-black ' + okCls(p.ok)}>{pctTxt(p.ach)}</span> : null}{(p.gaps || []).length ? <span className="ml-1 text-[10px] font-black text-rose-600">⚠ {p.gaps.length} gap</span> : null}</span>}
+                    hoursList={hourChips(p.perHour, true, p.gaps)}
+                    sub={<div className="mb-2 space-y-1">
+                      <div className="space-y-0.5">{p.types.map((t) => <div key={t.type} className="flex justify-between text-[11px]"><span className="capitalize">{prettyType(t.type)}{t.target ? <span className="text-slate-400"> (target {t.target}/h)</span> : null}</span><span><b>{t.qty}</b> in {t.hours}h &middot; <b className={okCls(t.ok)}>{t.tph}</b> TPH</span></div>)}</div>
+                      {(p.gaps || []).length > 0 && <div className="text-[11px] text-rose-700 font-bold">⚠ No entries at {p.gaps.map(hourLbl).join(', ')} <span className="font-normal text-slate-500">- {gapVerdict(p)}</span></div>}
+                      {p.brk && <div className="text-[11px] text-slate-600">Break {p.brk.breakMins}m{p.brk.overstayMins > 0 ? <b className="text-rose-600"> (+{p.brk.overstayMins}m over)</b> : null}{p.brk.lateMins > 0 ? <span> &middot; arrived late {p.brk.lateMins}m</span> : null}</div>}
+                    </div>} />
+                ))}
+                {people.length === 0 && <div className="text-xs text-slate-400 italic text-center py-4">No match.</div>}
+              </div>
+            </div>
+          )}
+          {tab === 'board' && (
+            <div>
+              <div className="flex items-center gap-1.5 mb-2 text-[11px] text-slate-500">
+                <Btn small tone={period === 7 ? 'blue' : 'slate'} onClick={() => setPeriod(7)}>Last 7 days</Btn>
+                <Btn small tone={period === 30 ? 'blue' : 'slate'} onClick={() => setPeriod(30)}>Last 30 days</Btn>
+                {board && board.success && <span className="ml-auto">{board.from} to {board.to} &middot; {board.people} people</span>}
+              </div>
+              {board === null && <div className="text-xs text-slate-400 py-6 text-center">Loading...</div>}
+              {board && !board.success && <div className="text-xs text-rose-600 py-4 text-center">{board.error || 'Could not load.'}</div>}
+              {board && board.success && board.people === 0 && <div className="text-xs text-slate-400 italic py-6 text-center">No productivity data in this period.</div>}
+              {board && board.success && board.people > 0 && (
+                <div className="grid md:grid-cols-2 gap-3">
+                  <BoardCol title="🏆 Most units" list={board.topQty} kind="qty" />
+                  <BoardCol title="🎯 Best vs target (4+ active hours)" list={board.topAch} kind="ach" />
+                </div>
+              )}
+            </div>
+          )}
+        </Modal>
+      );
+    }
+
+    // ---------- Broadcast: message / photo to the whole group (like a WhatsApp admin post) ----------
+    function shrinkImage(file, done, fail) {
+      const fr = new FileReader();
+      fr.onerror = fail;
+      fr.onload = () => {
+        const im = new Image();
+        im.onerror = fail;
+        im.onload = () => {
+          const k = Math.min(1, 1000 / Math.max(im.width, im.height));
+          const c = document.createElement('canvas'); c.width = Math.round(im.width * k); c.height = Math.round(im.height * k);
+          c.getContext('2d').drawImage(im, 0, 0, c.width, c.height);
+          done(c.toDataURL('image/jpeg', 0.8));
+        };
+        im.src = fr.result;
+      };
+      fr.readAsDataURL(file);
+    }
+    function BroadcastPopup({ S, close, callApi, busy, toast }) {
+      const [title, setTitle] = useState('');
+      const [msg, setMsg] = useState('');
+      const [prio, setPrio] = useState('normal');
+      const [expiry, setExpiry] = useState('shift');
+      const [lines, setLines] = useState({});
+      const [ids, setIds] = useState({});
+      const [people, setPeople] = useState(false);
+      const [q, setQ] = useState('');
+      const [img, setImg] = useState({ data: '', id: '', up: '' });
+      const [openUn, setOpenUn] = useState({});
+      const defs = S.taskDefinitions || {}, att = S.attendance || {};
+      const chosenLines = Object.keys(lines).filter((k) => lines[k]), chosenIds = Object.keys(ids).filter((k) => ids[k]);
+      const all = !chosenLines.length && !chosenIds.length;
+      const emps = S.employees || [], nm = {}; emps.forEach((w) => { nm[w.id] = w.name; });
+      const act = S.broadcasts || [], hist = S.bcHistory || [];
+      const pickFile = (e) => {
+        const f = e.target.files && e.target.files[0]; if (!f) return;
+        setImg({ data: '', id: '', up: 'busy' });
+        shrinkImage(f, (data) => {
+          setImg({ data, id: '', up: 'busy' });
+          gs('uploadBroadcastImage', [window.__dashToken || '', data], (res) => {
+            if (res && res.success) setImg({ data, id: res.imageId, up: 'ok' });
+            else { setImg({ data, id: '', up: 'err' }); toast((res && res.error) || 'Photo upload failed.'); }
+          }, () => { setImg({ data, id: '', up: 'err' }); toast('Photo upload failed.'); });
+        }, () => { setImg({ data: '', id: '', up: 'err' }); toast('Could not read that photo.'); });
+        e.target.value = '';
+      };
+      const send = () => {
+        if (img.up === 'busy') { toast('Photo is still uploading...'); return; }
+        if (!msg.trim() && !img.id) { toast('Write a message or add a photo first.'); return; }
+        callApi('sendBroadcast', [{ title: title.trim(), message: msg.trim(), imageId: img.id, priority: prio, all, lines: chosenLines, ids: chosenIds, expiry }], 'Message sent to the group', () => {
+          setTitle(''); setMsg(''); setPrio('normal'); setExpiry('shift'); setLines({}); setIds({}); setPeople(false); setImg({ data: '', id: '', up: '' });
+        });
+      };
+      const chip = (on, label, onClick, key) => (
+        <button key={key || label} onClick={onClick} className={'px-3 py-1.5 rounded-full border text-xs font-bold transition-colors ' + (on ? 'bg-sky-600 border-sky-700 text-white' : 'bg-white border-slate-300 text-slate-600 hover:bg-slate-50')}>{label}</button>
+      );
+      const peopleList = emps.filter((w) => (att[w.id] || 'Present') === 'Present' && (!q.trim() || (w.name + ' ' + w.id).toLowerCase().includes(q.trim().toLowerCase())));
+      return (
+        <Modal title="📢 Broadcast to the group" onClose={close} size="xxl">
+          <div className="grid md:grid-cols-2 gap-5">
+            <div className="space-y-2.5">
+              <input value={title} maxLength={60} onChange={(e) => setTitle(e.target.value)} placeholder="Title (optional)" className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-bold" />
+              <div>
+                <textarea value={msg} maxLength={800} onChange={(e) => setMsg(e.target.value)} rows={5} placeholder="Write the important message..." className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm" />
+                <div className="text-right text-[10px] text-slate-400">{msg.length} / 800</div>
+              </div>
+              <div className="flex items-center gap-2">
+                <label className="cursor-pointer px-3 py-2 border border-dashed border-slate-400 rounded-lg text-xs font-bold text-slate-600 hover:bg-slate-50">📷 Add photo<input type="file" accept="image/*" className="hidden" onChange={pickFile} /></label>
+                {img.up === 'busy' && <span className="text-xs text-amber-600">Uploading photo...</span>}
+                {img.up === 'ok' && <span className="text-xs text-emerald-600 font-bold">✔ Photo ready</span>}
+                {img.up === 'err' && <span className="text-xs text-rose-600 font-bold">Upload failed</span>}
+                {img.data && <button onClick={() => setImg({ data: '', id: '', up: '' })} className="text-xs text-rose-500 font-bold">✕ Remove</button>}
+              </div>
+              {img.data && <img src={img.data} alt="" className="max-h-44 rounded-lg border border-slate-200" />}
+              <div className="text-[11px] font-bold uppercase text-slate-500">Send to</div>
+              <div className="flex flex-wrap gap-1.5">
+                {chip(all, 'Everyone', () => { setLines({}); setIds({}); setPeople(false); })}
+                {Object.keys(defs).map((c) => chip(!!lines[c], c, () => setLines((l) => Object.assign({}, l, { [c]: !l[c] })), 'l' + c))}
+                {chip(people || chosenIds.length > 0, '👤 People' + (chosenIds.length ? ' (' + chosenIds.length + ')' : ''), () => setPeople((v) => !v))}
+              </div>
+              {people && (
+                <div>
+                  <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search name..." className="w-full border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs mb-1.5" />
+                  <div className="max-h-40 overflow-y-auto grid grid-cols-2 gap-1">
+                    {peopleList.map((w) => <button key={w.id} onClick={() => setIds((m) => Object.assign({}, m, { [w.id]: !m[w.id] }))} className={'text-left px-2 py-1 rounded border text-[11px] truncate ' + (ids[w.id] ? 'bg-sky-600 border-sky-700 text-white' : 'bg-white border-slate-200 text-slate-600')}>{ids[w.id] ? '✓ ' : ''}{w.name}</button>)}
+                  </div>
+                </div>
+              )}
+              <div className="flex flex-wrap items-center gap-2">
+                {chip(prio === 'normal', 'Normal', () => setPrio('normal'))}
+                {chip(prio === 'urgent', '🚨 Urgent', () => setPrio('urgent'))}
+                <select value={expiry} onChange={(e) => setExpiry(e.target.value)} className="ml-auto border border-slate-300 rounded-lg px-2 py-1.5 text-xs font-bold">
+                  <option value="shift">Until shift ends</option><option value="24h">24 hours</option><option value="3d">3 days</option><option value="manual">Until I remove it</option>
+                </select>
+              </div>
+              <Btn tone="blue" disabled={busy || img.up === 'busy'} onClick={send}>📢 Send</Btn>
+              <p className="text-[10px] text-slate-400">Everyone chosen gets a full-screen popup on their PDA with a buzz. It stays until they tap "Got it". Urgent messages repeat the buzz.</p>
+            </div>
+            <div className="space-y-2.5 min-w-0">
+              <div className="text-[11px] font-bold uppercase text-slate-500">Active messages ({act.length})</div>
+              {act.length === 0 && <div className="text-xs text-slate-400 italic">Nothing active.</div>}
+              {act.map((b) => {
+                const pct = b.total ? Math.round(b.ackedCount / b.total * 100) : 0;
+                const unclear = Object.keys(b.reply || {}).filter((k) => b.reply[k] === 'unclear').map((k) => nm[k] || k);
+                return (
+                  <div key={b.id} className={'border rounded-xl p-2.5 space-y-1.5 ' + (b.priority === 'urgent' ? 'border-rose-300 bg-rose-50/40' : 'border-slate-200')}>
+                    <div className="flex gap-2">
+                      {b.imageUrl && <img src={b.imageUrl} alt="" className="w-14 h-14 rounded-lg object-cover border border-slate-200" />}
+                      <div className="min-w-0 flex-1">
+                        <div className="text-xs font-bold break-words">{b.priority === 'urgent' ? '🚨 ' : ''}{b.title || b.message || 'Photo'}</div>
+                        {b.title && b.message && <div className="text-[11px] text-slate-500 break-words">{String(b.message).slice(0, 90)}</div>}
+                        <div className="text-[10px] text-slate-400">{b.sender} &middot; {b.timeStr}</div>
+                      </div>
+                    </div>
+                    <div>
+                      <div className="flex justify-between text-[10px] font-bold text-slate-600"><span>Seen {b.ackedCount} of {b.total}</span><span>{pct}%</span></div>
+                      <div className="h-1.5 bg-slate-100 rounded-full overflow-hidden"><div className={'h-full ' + (pct === 100 ? 'bg-emerald-500' : 'bg-sky-500')} style={{ width: pct + '%' }} /></div>
+                    </div>
+                    {unclear.length > 0 && <div className="text-[11px] font-bold text-amber-700">❓ Not clear: {unclear.join(', ')}</div>}
+                    {b.unseen && b.unseen.length > 0 && (
+                      <div>
+                        <button onClick={() => setOpenUn((o) => Object.assign({}, o, { [b.id]: !o[b.id] }))} className="text-[11px] font-bold text-rose-600">{openUn[b.id] ? '▾' : '▸'} Not seen yet ({b.unseen.length})</button>
+                        {openUn[b.id] && <div className="text-[11px] text-slate-600 leading-relaxed">{b.unseen.map((u) => u.name).join(', ')}</div>}
+                      </div>
+                    )}
+                    <div className="flex gap-2">
+                      <Btn small disabled={busy} onClick={() => callApi('remindBroadcast', [b.id], 'Reminder sent')}>🔔 Remind unseen</Btn>
+                      <Btn small disabled={busy} onClick={() => callApi('endBroadcast', [b.id], 'Message ended')}>🗑 End</Btn>
+                    </div>
+                  </div>
+                );
+              })}
+              {hist.length > 0 && <div className="text-[11px] font-bold uppercase text-slate-500 pt-1">Earlier messages</div>}
+              {hist.map((b) => (
+                <div key={b.id} className="px-2.5 py-1.5 rounded-lg bg-slate-50 border border-slate-100 text-[11px]">
+                  <div className="font-bold text-slate-700 truncate">{b.imageUrl ? '📷 ' : ''}{b.title || b.message || 'Photo'}</div>
+                  <div className="text-slate-400">{b.sender} &middot; {b.timeStr} &middot; seen {b.ackedCount}/{b.total} &middot; {b.status}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </Modal>
+      );
+    }
+
+    // ---------- Help call activity (who accepted / sent a helper / cleared) ----------
+    const HELP_ICON = { raised: '🆘', accepted: '🤝', dispatched: '🚶', cleared: '✅' };
+    function actorLabel(h) { return h.byRole === 'Dashboard' ? 'Supervisor (Dashboard)' : h.by + ' (' + h.byRole + ')'; }
+    function helpEventText(h) {
+      const where = h.empName + ' at ' + h.location + (h.station ? ' (' + h.station + ')' : '');
+      if (h.type === 'raised') return where + ' asked for help';
+      if (h.type === 'accepted') return actorLabel(h) + ' accepted: ' + where;
+      if (h.type === 'dispatched') return actorLabel(h) + ' sent ' + (h.helperName || 'a helper') + ' to ' + where;
+      return actorLabel(h) + ' cleared: ' + where;
+    }
+    function PhotoThumb({ url, h }) {
+      const [open, setOpen] = useState(false);
+      if (!url) return null;
+      return (
+        <span className="inline-block align-middle">
+          <img src={url} alt="help photo" onClick={() => setOpen(true)} className={'rounded border border-slate-300 object-cover cursor-zoom-in ' + (h || 'h-10')} />
+          {open && <div onClick={() => setOpen(false)} className="fixed inset-0 z-[300] bg-black/90 flex items-center justify-center p-4 cursor-zoom-out"><img src={url} alt="" className="max-w-full max-h-full rounded-lg" /></div>}
+        </span>
+      );
+    }
+    function HelpLogPopup({ S, close }) {
+      const log = S.helpLog || [];
+      return (
+        <Modal title={'🆘 Help call activity'} onClose={close} wide>
+          {log.length === 0 && <div className="text-xs text-slate-400 italic text-center py-6">No help calls yet today.</div>}
+          <div className="space-y-1.5">
+            {log.map((h) => (
+              <div key={h.id} className={'flex items-start gap-2 rounded-lg border px-3 py-2 text-xs ' + (h.type === 'cleared' ? 'bg-emerald-50 border-emerald-200' : h.type === 'raised' ? 'bg-rose-50 border-rose-200' : 'bg-sky-50 border-sky-200')}>
+                <span className="text-base leading-none">{HELP_ICON[h.type]}</span>
+                <div className="min-w-0 flex-1 font-semibold text-slate-800">{helpEventText(h)}{h.imageUrl ? <div className="mt-1"><PhotoThumb url={h.imageUrl} h="h-16" /></div> : null}</div>
+                <span className="text-[10px] text-slate-500 whitespace-nowrap">{h.timeStr}</span>
+              </div>
+            ))}
+          </div>
+          <div className="text-[10px] text-slate-400 mt-2">Showing the latest {log.length} events.</div>
+        </Modal>
+      );
+    }
+
+    // ---------- PIN gate ----------
+    function PinGate({ onDone }) {
+      const [pin, setPin] = useState('');
+      const [err, setErr] = useState('');
+      const [busy, setBusy] = useState(false);
+      const submit = () => {
+        if (busy) return; setBusy(true); setErr('');
+        gs('dashLogin', [pin], (res) => {
+          setBusy(false);
+          if (res && res.success) { try { sessionStorage.setItem('dash_token', res.token || ''); } catch (e) {} onDone(res.token || ''); }
+          else setErr((res && res.error) || 'Incorrect PIN.');
+        }, (m) => { setBusy(false); setErr(m); });
+      };
+      return (
+        <div className="min-h-screen flex items-center justify-center p-4 bg-slate-100">
+          <div className="bg-white border border-slate-200 rounded-2xl shadow-lg p-6 w-full max-w-xs text-center">
+            <div className="text-xs font-semibold uppercase tracking-wider text-slate-400">Shift A</div>
+            <h1 className="text-lg font-bold text-slate-800 mt-1">Operations Dashboard</h1>
+            <p className="text-xs text-slate-500 mt-1 mb-4">Enter the supervisor PIN to continue.</p>
+            <input type="password" autoFocus value={pin} onChange={(e) => setPin(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && submit()}
+              className="w-full border border-slate-300 rounded-lg px-3 py-2 text-center text-lg tracking-widest outline-none focus:border-sky-600" placeholder="PIN" />
+            {err && <p className="text-xs text-rose-600 font-semibold mt-2">{err}</p>}
+            <button onClick={submit} disabled={busy || !pin} className="w-full mt-3 py-2 rounded-lg bg-sky-700 text-white text-sm font-bold disabled:opacity-50">{busy ? 'Checking...' : 'Unlock'}</button>
+          </div>
+        </div>
+      );
+    }
+
+    // ---------- main app ----------
+    function App() {
+      const [token, setToken] = useState(() => { try { return sessionStorage.getItem('dash_token') || ''; } catch (e) { return ''; } });
+      const [needAuth, setNeedAuth] = useState(false);
+      const [S, setS] = useState(null);
+      const [loadErr, setLoadErr] = useState('');
+      const [view, setView] = useState('board');
+      const [day, setDay] = useState('');
+      const [search, setSearch] = useState('');
+      const [inspect, setInspect] = useState('');
+      const [modal, setModal] = useState(null);
+      const [toastMsg, setToastMsg] = useState('');
+      const [busy, setBusy] = useState(false);
+      const [history, setHistory] = useState(null);
+      const [weekly, setWeekly] = useState(null);
+      const [weekDays, setWeekDays] = useState(7);
+      const tokenRef = useRef(token); tokenRef.current = token; window.__dashToken = token;
+      const lastNow = useRef(0), skew = useRef(0), polling = useRef(false);
+      const primed = useRef(false), seen = useRef({ help: {}, over: {}, ns: {}, breach: '', esc: {} });
+      const [tick, setTick] = useState(0);
+
+      const toast = useCallback((m) => { setToastMsg(m); setTimeout(() => setToastMsg((cur) => (cur === m ? '' : cur)), 3500); }, []);
+      const applyState = useCallback((st) => {
+        if (!st || !st.serverNow || st.serverNow < lastNow.current) return false;
+        lastNow.current = st.serverNow; skew.current = st.serverNow - Date.now(); noPinRef.current = !!st.noPin; setS(st); return true;
+      }, []);
+      const nowSrv = () => Date.now() + skew.current;
+      const noPinRef = useRef(false);
+
+      // polling
+      useEffect(() => {
+        let alive = true, timer = null;
+        const loop = () => {
+          if (!alive) return;
+          if (!polling.current) {
+            polling.current = true;
+            gs('getLiveState', [tokenRef.current], (res) => {
+              polling.current = false;
+              if (!res) return;
+              if (res.authRequired || res.code === 'AUTH') { setNeedAuth(true); return; }
+              if (res.error) { setLoadErr(res.error); return; }
+              setLoadErr(''); setNeedAuth(false); applyState(res);
+            }, (m) => { polling.current = false; setLoadErr(m); });
+          }
+          timer = setTimeout(loop, document.hidden ? 16000 : 4000);
+        };
+        loop();
+        const vis = () => { if (!document.hidden) { polling.current = false; } };
+        document.addEventListener('visibilitychange', vis);
+        return () => { alive = false; clearTimeout(timer); document.removeEventListener('visibilitychange', vis); };
+      }, [token]);
+      useEffect(() => { const t = setInterval(() => setTick((x) => x + 1), 1000); return () => clearInterval(t); }, []);
+
+      // scroll lock
+      useEffect(() => { document.body.classList[modal ? 'add' : 'remove']('modal-open'); }, [modal]);
+
+      // beeps on NEW help / overstay / breach
+      useEffect(() => {
+        if (!S) return;
+        const helpIds = (S.activeHelpRequests || []).map((r) => r.id);
+        const overKeys = (S.overstayBreaks || []).map((o) => o.empId + '@' + o.breakEndTime);
+        const breachKey = (S.minStaffBreaches || []).map((b) => b.code).sort().join(',');
+        let loud = false;
+        helpIds.forEach((id) => { if (!seen.current.help[id]) { seen.current.help[id] = 1; loud = true; } });
+        overKeys.forEach((k) => { if (!seen.current.over[k]) { seen.current.over[k] = 1; loud = true; } });
+        if (breachKey && breachKey !== seen.current.breach) loud = true;
+        (S.activeHelpRequests || []).forEach((r) => { if (r.escalated && !seen.current.esc[r.id]) { seen.current.esc[r.id] = 1; loud = true; } });
+        let soft = false;
+        (S.nonSortRequests || []).filter((r) => r.status === 'pending').forEach((r) => { if (!seen.current.ns[r.id]) { seen.current.ns[r.id] = 1; soft = true; } });
+        seen.current.breach = breachKey;
+        if (primed.current && loud) beep(3); else if (primed.current && soft) beep(1);
+        primed.current = true;
+      }, [S]);
+
+      useEffect(() => { if (S && !day) setDay(S.currentRealDay); }, [S]);
+
+      // productivity sheet got new data: tell the supervisor right away
+      const [prodNew, setProdNew] = useState('');
+      const prodNewRef = useRef(false);
+      const pvLatest = S && S.prodVer ? S.prodVer.latest : '';
+      useEffect(() => {
+        if (!pvLatest) return;
+        let seenD = ''; try { seenD = localStorage.getItem('prod_seen_latest') || ''; } catch (e) {}
+        try { localStorage.setItem('prod_seen_latest', pvLatest); } catch (e) {}
+        if (seenD && pvLatest > seenD) { setProdNew(pvLatest); prodNewRef.current = true; toast('📈 Productivity data for ' + pvLatest + ' is now live'); beep(2); }
+      }, [pvLatest]);
+      const pvSig = S && S.prodVer ? (S.prodVer.v || String(S.prodVer.rows)) : '';
+      const sigRef = useRef('');
+      useEffect(() => {
+        if (!pvSig) return;
+        if (sigRef.current && sigRef.current !== pvSig && !prodNewRef.current) { toast('📈 Productivity sheet updated'); beep(1); }
+        prodNewRef.current = false; sigRef.current = pvSig;
+      }, [pvSig]);
+
+      // run a dashboard command
+      const run = useCallback((op, payload, okMsg) => {
+        if (busy) return;
+        setBusy(true);
+        gs('dashAction', [tokenRef.current, op, payload || {}], (res) => {
+          setBusy(false);
+          if (!res) return;
+          if (res.code === 'AUTH') { if (noPinRef.current) { toast('Please try again.'); return; } setNeedAuth(true); return; }
+          if (res.success) {
+            applyState(res.state);
+            const m = typeof okMsg === 'function' ? okMsg(res) : okMsg;
+            if (m) toast(m);
+          } else toast(res.error || 'Action failed.');
+        }, (m) => { setBusy(false); toast(m); });
+      }, [busy]);
+
+      const callApi = (name, args, okMsg, after) => {
+        if (busy) return; setBusy(true);
+        gs(name, [tokenRef.current].concat(args), (res) => {
+          setBusy(false);
+          if (res && res.code === 'AUTH') { if (noPinRef.current) { toast('Please try again.'); return; } setNeedAuth(true); return; }
+          if (res && res.success) { applyState(res.state); if (okMsg) toast(okMsg); if (after) after(res); }
+          else toast((res && res.error) || 'Action failed.');
+        }, (m) => { setBusy(false); toast(m); });
+      };
+
+      // lazy tabs
+      useEffect(() => {
+        if (view === 'audit') gs('getShiftHistory', [tokenRef.current], (r) => setHistory(r || []), () => setHistory([]));
+        if (view === 'weekly') { setWeekly(null); gs('getWeeklyRecord', [tokenRef.current, weekDays], (r) => setWeekly(r || { success: false }), () => setWeekly({ success: false })); }
+      }, [view, weekDays]);
+
+      if (needAuth) return <PinGate onDone={(t) => { setToken(t); tokenRef.current = t; setNeedAuth(false); polling.current = false; }} />;
+      if (!S) return <div className="min-h-screen flex items-center justify-center text-slate-500 text-sm">{loadErr ? <div className="text-center"><div className="text-rose-600 font-semibold">Cannot load</div><div className="text-xs mt-1">{loadErr}</div></div> : 'Loading dashboard...'}</div>;
+
+      return <Dashboard {...{ S, view, setView, day, setDay, search, setSearch, inspect, setInspect, modal, setModal, run, callApi, busy, history, weekly, weekDays, setWeekDays, toast, nowSrv, tick, loadErr, prodNew, setProdNew }} toastMsg={toastMsg} />;
+    }
+
+    function Dashboard(P) {
+      const { S, view, setView, day, setDay, search, setSearch, inspect, setInspect, modal, setModal, run, callApi, busy, history, weekly, weekDays, setWeekDays, toast, nowSrv, toastMsg, loadErr, prodNew, setProdNew } = P;
+      const [flash, setFlash] = useState('');
+      const [dark, setDark] = useState(() => lsGet('dash_dark') === '1');
+      const [tv, setTv] = useState(() => lsGet('dash_tv') === '1');
+      const [moveMode, setMoveMode] = useState(false);
+      const [sel, setSel] = useState({});
+      const [moveTarget, setMoveTarget] = useState('');
+      const [dropOn, setDropOn] = useState('');
+      useEffect(() => { document.body.classList[dark || tv ? 'add' : 'remove']('dark'); lsSet('dash_dark', dark ? '1' : '0'); }, [dark, tv]);
+      useEffect(() => {
+        document.body.classList[tv ? 'add' : 'remove']('tv'); lsSet('dash_tv', tv ? '1' : '0');
+        if (!tv) return undefined;
+        const id = setInterval(() => {                       // control-room mode: slowly page through the board, then wrap to the top
+          if (document.body.classList.contains('modal-open')) return;
+          const max = document.documentElement.scrollHeight - window.innerHeight;
+          if (window.scrollY >= max - 8) window.scrollTo({ top: 0, behavior: 'smooth' });
+          else window.scrollBy({ top: Math.round(window.innerHeight * 0.7), behavior: 'smooth' });
+        }, 14000);
+        return () => clearInterval(id);
+      }, [tv]);
+      const realDay = S.currentRealDay;
+      const selDay = day || realDay;
+      const isToday = selDay === realDay;
+      const canAct = isToday && S.isShiftActive;
+      const emps = S.employees || [];
+      const att = S.attendance || {}, asg = S.assignments || {}, defs = S.taskDefinitions || {};
+      const disabled = S.disabledTasks || {};
+      const q = lc(search);
+      const matches = (e) => !q || lc(e.name).includes(q) || lc(e.id).includes(q);
+      const planFor = (e, d) => (e.plan && e.plan[d]) || 'PK';
+      const now = nowSrv();
+
+      // members per line
+      const membersOf = (code) => {
+        if (isToday) return emps.filter((e) => att[e.id] === 'Present' && curStation(asg[e.id], '') === code);
+        return emps.filter((e) => planFor(e, selDay) === code);
+      };
+      const plannedOf = (code) => emps.filter((e) => planFor(e, realDay) === code && att[e.id] !== 'WO').length;
+      const codes = Object.keys(defs);
+      const memAll = {}; codes.forEach((c) => { memAll[c] = membersOf(c); });      // everyone assigned to the line (incl. on break) - used for shortage maths
+      const memMap = {}; codes.forEach((c) => { memMap[c] = isToday ? memAll[c].filter((e) => !(asg[e.id] || {}).onBreak) : memAll[c]; });   // shown in the line box: on-break people move to the Break box
+      const onBreakList = isToday ? emps.filter((e) => att[e.id] === 'Present' && asg[e.id] && asg[e.id].onBreak) : [];
+
+      const counts = { present: 0, absent: 0, eo: 0, wo: 0 };
+      emps.forEach((e) => { const s = att[e.id]; if (s === 'Present') counts.present++; else if (s === 'AB' || s === 'LV') counts.absent++; else if (s === 'EO') counts.eo++; else if (s === 'WO') counts.wo++; });
+      const breaksDone = emps.filter((e) => asg[e.id] && asg[e.id].breakStatus === 'completed').length;
+      const breaksPending = emps.filter((e) => att[e.id] === 'Present' && asg[e.id] && asg[e.id].breakStatus === 'pending').length;
+      const breakingNow = onBreakList.length;
+
+      const breachMap = {}; (S.minStaffBreaches || []).forEach((b) => { breachMap[b.code] = b; });
+      // per-line staffing: have = people on the line now, planned = people the weekly plan expects (week-offs excluded)
+      const stat = {};
+      codes.forEach((c) => {
+        const have = memAll[c].length, planned = plannedOf(c);
+        const active = memMap[c].length;
+        let kind = 'none';
+        if (isToday && !disabled[c] && (planned > 0 || have > 0)) kind = have < planned ? 'short' : have > planned ? 'extra' : 'ok';
+        stat[c] = { have: have, planned: planned, active: active, kind: kind, deficit: Math.max(0, planned - have) };
+      });
+      const shortages = [];
+      (S.minStaffBreaches || []).forEach((b) => shortages.push({ code: b.code, text: b.code + ' ' + b.active + '/' + b.min + ' (min)' }));
+      if (isToday) codes.forEach((c) => {
+        if (disabled[c] || breachMap[c]) return;
+        if (stat[c].kind === 'short') shortages.push({ code: c, text: c + ' (' + stat[c].deficit + ')' });
+        else if (stat[c].planned > 0 && stat[c].active === 0) shortages.push({ code: c, text: c + ' 0 active' });
+      });
+      // low-staff forecast: line is fine now, but one more person going on break drops it under its minimum
+      const forecastWarn = [];
+      if (isToday) codes.forEach((c) => {
+        if (disabled[c]) return;
+        const mn = (S.minStaff || {})[c] || 0;
+        const pend = memMap[c].filter((e) => (asg[e.id] || {}).breakStatus === 'pending' && !(asg[e.id] || {}).onBreak).length;
+        if (mn > 0 && pend > 0 && stat[c].active >= mn && stat[c].active - 1 < mn) forecastWarn.push({ code: c, after: stat[c].active - 1, min: mn });
+      });
+      const fcMap = {}; forecastWarn.forEach((f) => { fcMap[f.code] = f; });
+      const ovCodes = codes.slice().sort((x, y) => { const ix = OVERVIEW_ORDER.indexOf(x), iy = OVERVIEW_ORDER.indexOf(y); return (ix < 0 ? 99 : ix) - (iy < 0 ? 99 : iy) || x.localeCompare(y); });
+      const nsReqAll = S.nonSortRequests || [];
+      const nsPending = nsReqAll.filter((r) => r.status === 'pending').length;
+
+      // board order
+      const hasPeople = codes.filter((c) => memAll[c].length > 0 && PRIORITY.indexOf(c) < 0);
+      const sortRest = (a, b) => { const ia = AFTER_ORDER.indexOf(a), ib = AFTER_ORDER.indexOf(b); return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib) || a.localeCompare(b); };
+      const midLines = hasPeople.slice().sort(sortRest);
+      const emptyLines = codes.filter((c) => memAll[c].length === 0 && PRIORITY.indexOf(c) < 0).sort(sortRest);
+      const priorityLines = PRIORITY.filter((c) => defs[c]);
+      const boardCols = [].concat(priorityLines.map((c) => ({ t: 'line', code: c })), [{ t: 'break' }], midLines.map((c) => ({ t: 'line', code: c })), emptyLines.map((c) => ({ t: 'line', code: c })));
+      const visibleCols = inspect ? boardCols.filter((c) => c.t === 'break' || c.code === inspect) : boardCols;
+
+      // click a task card at the top: smoothly scroll to its box and flash it (no abrupt re-layout)
+      const goBox = (c) => {
+        const run2 = () => { const el = document.getElementById('box-' + c); if (!el) return; el.scrollIntoView({ behavior: 'smooth', block: 'center' }); setFlash(c); setTimeout(() => setFlash(''), 1700); };
+        if (inspect && inspect !== c) { setInspect(''); setTimeout(run2, 80); } else run2();
+      };
+
+      const eStatusBadge = (e) => {
+        const d = (S.attendanceDetail || {})[e.id] || {};
+        return (
+          <>
+            {d.late && <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 border border-amber-200">Late {d.late.mins}m ({d.late.time})</span>}
+            {d.left && <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-rose-100 text-rose-800 border border-rose-200">Left {d.left.time}</span>}
+          </>
+        );
+      };
+
+      // ----- cards -----
+      const CCCard = ({ e }) => {
+        const a = asg[e.id] || {};
+        const planned = planFor(e, realDay);
+        const isHelper = !!a.isHelping, covering = !!a.swappedFrom;
+        const summoned = (S.activeSummons || []).some((s) => lc(s.targetId) === lc(e.id));
+        return (
+          <div key={e.id} draggable={!!(canAct && isToday)} onDragStart={(ev) => { const ids = sel[e.id] ? Object.keys(sel).filter((k) => sel[k]) : [e.id]; try { ev.dataTransfer.setData('text/plain', JSON.stringify(ids)); ev.dataTransfer.effectAllowed = 'move'; } catch (x) {} }}
+            className={'bg-white border rounded-xl px-2.5 pt-2.5 pb-2 shadow-sm ' + (summoned ? 'border-amber-400' : 'border-slate-200') + (sel[e.id] ? ' ring-2 ring-sky-500' : '') + (canAct && isToday ? ' cursor-grab' : '')}>
+            <div className="flex items-start justify-between gap-2">
+              <div className="min-w-0">
+                <div className="text-[13px] font-bold text-slate-800 truncate">{moveMode && canAct && <input type="checkbox" checked={!!sel[e.id]} onChange={() => setSel((p) => Object.assign({}, p, { [e.id]: !p[e.id] }))} className="mr-1.5 align-middle" />}{e.name}</div>
+                <div className="text-[10px] text-slate-400 font-mono truncate">{e.id}</div>
+              </div>
+              {isHelper ? <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-md bg-amber-100 text-amber-800 border border-amber-200 whitespace-nowrap">Helper &middot; base {a.originalStation}</span>
+                : covering ? <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-md bg-indigo-100 text-indigo-800 border border-indigo-200">Covering</span>
+                : <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-md bg-slate-100 text-slate-600 border border-slate-200">Primary</span>}
+            </div>
+            {(((S.attendanceDetail || {})[e.id] || {}).late || ((S.attendanceDetail || {})[e.id] || {}).left || a.breakStatus === 'completed' || summoned) && (
+              <div className="flex flex-wrap gap-1 mt-1.5">{eStatusBadge(e)}{a.breakStatus === 'completed' && <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-200">Break done</span>}{summoned && <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-amber-50 text-amber-700 border border-amber-200">Called</span>}</div>
+            )}
+            <div className="flex items-center flex-wrap gap-x-2 gap-y-1 mt-2 pt-2 border-t border-slate-100">
+              <span className="text-[10px] font-semibold text-sky-700">Plan: {planned}</span>
+              {canAct && (
+                <>
+                  {a.breakStatus === 'pending' && <LinkBtn tone="text-amber-700" disabled={busy} onClick={() => run('breakStart', { empId: e.id }, 'Break started: ' + e.name)}>&#9749; Break</LinkBtn>}
+                  {a.breakStatus === 'completed' && <LinkBtn tone="text-slate-500" disabled={busy} onClick={() => run('breakUndo', { empId: e.id }, 'Break reset')}>&#8617; Undo break</LinkBtn>}
+                  {isHelper ? <LinkBtn tone="text-sky-700" disabled={busy} onClick={() => run('helperRevert', { empId: e.id }, (r) => 'Helper ended (' + r.durationFormatted + ')')}>Revert helper</LinkBtn>
+                    : <LinkBtn tone="text-sky-700" disabled={busy} onClick={() => setModal({ type: 'line', mode: 'helper', emp: e })}>Deploy Helper</LinkBtn>}
+                  <LinkBtn tone="text-amber-700" disabled={busy} onClick={() => setModal({ type: 'call', emp: e })}>&#128276; Call</LinkBtn>
+                  <LinkBtn tone="text-slate-500" disabled={busy} onClick={() => setModal({ type: 'line', mode: 'swap', emp: e })}>Swap</LinkBtn>
+                </>
+              )}
+            </div>
+          </div>
+        );
+      };
+
+      const BreakCol = () => (
+        <div className={'h-full w-full bg-amber-50 border-2 border-amber-300 rounded-2xl shadow-sm flex flex-col ' + (flash === 'BRK' ? 'box-flash' : '')}>
+          <div className="shrink-0 px-3 py-2.5 border-b border-amber-200 flex items-start justify-between gap-2">
+            <div>
+              <div className="flex items-center gap-2"><span className="text-[10px] font-black text-white px-1.5 py-0.5 rounded bg-amber-800">&#9749; BRK</span><span className="text-xs font-bold text-slate-800">On Break (Live)</span></div>
+              <div className="text-[10px] text-slate-600 mt-1">Current: <b>{onBreakList.length} CC</b></div>
+            </div>
+            <span className="text-[10px] font-bold border rounded-md px-2 py-0.5 bg-amber-100 text-amber-800 border-amber-300 whitespace-nowrap">{onBreakList.length} on Break</span>
+          </div>
+          <div className="p-2.5 space-y-2 flex-1 min-h-0 overflow-y-auto box-scroll">
+            {onBreakList.length === 0 && <div className="border-2 border-dashed border-amber-300 rounded-xl text-center text-[11px] text-amber-800/80 py-9 px-3">&#9749; No colleagues on break.<br />All active staff on duty.</div>}
+            {onBreakList.map((e) => {
+              const a = asg[e.id]; const diff = a.breakEndTime - now; const over = diff < 0;
+              return (
+                <div key={e.id} className={'bg-white border rounded-xl p-2.5 ' + (over ? 'border-rose-400 pulse-red' : 'border-amber-200')}>
+                  <div className="flex justify-between items-start"><div className="text-xs font-bold truncate">{e.name}</div><span className="text-[10px] text-slate-400">{curStation(a, '')}</span></div>
+                  <div className={'text-lg font-mono font-bold ' + (over ? 'text-rose-600' : 'text-amber-700')}>{over ? '+' : ''}{fmtMMSS(Math.abs(diff))}</div>
+                  <div className="text-[10px] text-slate-500">{over ? 'Overstay' : 'Remaining'} &middot; {a.breakDurationMins} min break</div>
+                  {canAct && <div className="flex gap-1 mt-1.5"><Btn small tone="green" disabled={busy} onClick={() => run('breakEnd', { empId: e.id }, (r) => r.overtimeMins > 0 ? 'Returned (+' + r.overtimeMins + 'm overstay)' : 'Returned on time')}>Return</Btn><Btn small disabled={busy} onClick={() => run('breakUndo', { empId: e.id }, 'Break cancelled')}>Undo</Btn></div>}
+                </div>
+              );
+            })}
+          </div>
+          <div className="shrink-0 px-3 py-2 border-t border-amber-200 text-center text-[10px] font-semibold text-slate-600">Standard Break Duration: {S.breakDurationSetting} mins</div>
+        </div>
+      );
+
+      const LineCol = ({ code }) => {
+        const d = defs[code] || {}; const list = memMap[code].filter(matches);
+        const dis = !!disabled[code]; const st = stat[code]; const br = !!breachMap[code];
+        const pill = st.kind === 'short' ? ['bg-rose-100 text-rose-700 border-rose-200', st.active + '/' + st.planned + ' Short']
+          : st.kind === 'extra' ? ['bg-sky-100 text-sky-700 border-sky-200', st.active + '/' + st.planned + ' Extra']
+          : st.kind === 'ok' ? ['bg-emerald-100 text-emerald-700 border-emerald-200', st.active + '/' + st.planned + ' OK'] : null;
+        return (
+          <div className={'h-full w-full border-2 rounded-2xl shadow-sm flex flex-col transition-colors duration-300 ' + ((st.kind === 'short' || br) ? 'border-rose-300 bg-rose-50/50 ' : 'border-slate-200 bg-white ') + (dis ? 'opacity-60 ' : '') + (flash === code ? 'box-flash' : '')}>
+            <div className="shrink-0 px-3 py-2.5 border-b border-slate-100 flex items-start justify-between gap-2">
+              <div className="min-w-0">
+                <div className="flex items-center gap-2">
+                  <span className={'text-[10px] font-black text-white px-1.5 py-0.5 rounded ' + (d.headerBg || 'bg-slate-600')}>{code}</span>
+                  <span className="text-xs font-bold text-slate-800 truncate">{d.name || code}{dis ? ' (off)' : ''}</span>
+                  <button title="Focus this line" onClick={() => setInspect(inspect === code ? '' : code)} className="text-slate-400 hover:text-slate-700 text-xs">&#128065;</button>
+                </div>
+                <div className="text-[10px] text-slate-500 mt-1">{isToday ? 'Active' : 'Planned'}: <b>{memMap[code].length} CC</b>{isToday && st.have > st.active ? <span className="text-amber-700"> &middot; {st.have - st.active} on break</span> : null}</div>
+              </div>
+              {isToday && pill && <span className={'text-[10px] font-bold border rounded-md px-2 py-0.5 whitespace-nowrap ' + pill[0]}>{pill[1]}</span>}
+            </div>
+            <div className="p-2.5 space-y-2 flex-1 min-h-0 overflow-y-auto box-scroll">
+              {list.length === 0 && <div className="text-[11px] text-slate-400 italic text-center py-3">{memMap[code].length ? 'No match' : (memAll[code].length ? 'Everyone is on break' : 'Empty')}</div>}
+              {list.map((e) => isToday ? CCCard({ e }) : (
+                <div key={e.id} className="bg-white border border-slate-200 rounded-xl p-2.5"><div className="text-xs font-bold">{e.name}</div><div className="text-[10px] text-slate-400">Planned for {selDay}</div></div>
+              ))}
+            </div>
+          </div>
+        );
+      };
+
+      // ----- header + alert stack -----
+      const helps = S.activeHelpRequests || [], summons = S.activeSummons || [], anns = S.announcements || [], over = S.overstayBreaks || [];
+      const recentHelp = (S.helpLog || []).filter((h) => h.type !== 'raised' && now - h.ts < 120000).slice(0, 3);
+      const alertCount = recentHelp.length + (S.minStaffBreaches || []).length + anns.length + helps.length + summons.length + over.length + (nsPending > 0 ? 1 : 0);
+      const shiftLabel = (S.shiftStartMs && S.shiftEndMs) ? fmt12(S.shiftStartMs) + ' - ' + fmt12(S.shiftEndMs) : '12:00 AM - 09:00 AM';
+      const VIEW_TABS = [['board', '🗂 Workstation Columns'], ['roster', '📋 Roster Table'], ['audit', '🕘 Audit & Logs'], ['weekly', '📅 Weekly Record']];
+
+      return (
+        <div className="min-h-screen">
+          <header className="bg-[#0b1530] text-white shadow-lg">
+            <div className="max-w-[1700px] mx-auto px-4 pt-4 pb-3 flex flex-wrap items-start justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <div className="w-11 h-11 rounded-xl bg-sky-700 flex items-center justify-center text-xl">&#9636;</div>
+                <div>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <h1 className="text-lg font-extrabold tracking-tight leading-tight">{S.shiftName || 'Shift A'} Operations Dashboard</h1>
+                    <span className={'inline-flex items-center gap-1.5 text-[10px] font-black tracking-wide px-2 py-1 rounded-md border ' + (S.isShiftActive ? 'border-emerald-400/60 text-emerald-300 bg-emerald-500/10' : 'border-amber-400/60 text-amber-300 bg-amber-500/10')}><span className={'w-1.5 h-1.5 rounded-full ' + (S.isShiftActive ? 'bg-emerald-400' : 'bg-amber-400')}></span>{S.isShiftActive ? 'SHIFT LIVE' : 'SHIFT CLOSED'}</span>
+                  </div>
+                  <div className="text-[11px] text-slate-300 mt-0.5">{S.shiftName || 'Shift A'} ({shiftLabel}) &bull; Warehouse Workstation Allocations</div>
+                  {loadErr && <div className="text-[11px] text-amber-300">Connection issue: retrying...</div>}
+                </div>
+              </div>
+              <div className="flex bg-[#14213f] border border-slate-600/60 rounded-xl p-1 gap-1 overflow-x-auto max-w-full">
+                {VIEW_TABS.map(([k, l]) => (
+                  <button key={k} onClick={() => setView(k)} className={'px-3 py-1.5 rounded-lg text-[11px] font-bold whitespace-nowrap ' + (view === k ? 'bg-sky-700 text-white shadow' : 'text-slate-300 hover:bg-slate-700/60')}>{l}</button>
+                ))}
+              </div>
+            </div>
+            <div className="max-w-[1700px] mx-auto px-4 pb-4 flex flex-wrap items-center gap-3">
+              <button onClick={() => setModal({ type: 'broadcast' })} className="relative bg-[#14213f] border border-slate-500/60 hover:bg-slate-700/60 rounded-xl px-3.5 py-2 text-xs font-bold flex items-center gap-1.5"><span className="text-rose-400">&#128226;</span> Broadcast{(S.broadcasts || []).length > 0 && <span className="absolute -top-1.5 -right-1.5 bg-sky-500 text-white text-[9px] font-black rounded-full px-1.5 py-0.5">{(S.broadcasts || []).length}</span>}</button>
+              <button onClick={() => setModal({ type: 'nonsort' })} className={'relative bg-[#14213f] border rounded-xl px-3.5 py-2 text-xs font-bold flex items-center gap-1.5 hover:bg-slate-700/60 ' + (nsPending > 0 ? 'border-rose-400 pulse-red' : 'border-slate-500/60')}>&#128230; Non Sort{nsPending > 0 && <span className="min-w-[18px] h-[18px] px-1 rounded-full bg-rose-500 text-white text-[10px] font-black flex items-center justify-center">{nsPending}</span>}</button>
+              <button onClick={() => setModal({ type: 'helplog' })} className={'relative bg-[#14213f] border rounded-xl px-3.5 py-2 text-xs font-bold flex items-center gap-1.5 hover:bg-slate-700/60 transition-colors ' + (helps.length > 0 ? 'border-rose-400' : 'border-slate-500/60')}>&#127384; Help Log{helps.length > 0 && <span className="min-w-[18px] h-[18px] px-1 rounded-full bg-rose-500 text-white text-[10px] font-black flex items-center justify-center">{helps.length}</span>}</button>
+              <button onClick={() => setModal({ type: 'report' })} className="bg-[#14213f] border border-slate-500/60 rounded-xl px-3.5 py-2 text-xs font-bold hover:bg-slate-700/60 transition-colors">&#128203; Report</button>
+              <button onClick={() => { setProdNew(''); setModal({ type: 'prod' }); }} className="relative bg-[#14213f] border border-slate-500/60 rounded-xl px-3.5 py-2 text-xs font-bold hover:bg-slate-700/60 transition-colors">&#128200; Productivity{prodNew && <span className="absolute -top-1.5 -right-1.5 bg-rose-600 text-white text-[9px] font-black rounded-full px-1.5 py-0.5 animate-pulse">NEW</span>}</button>
+              <button onClick={() => setModal({ type: 'late' })} className="bg-[#14213f] border border-slate-500/60 rounded-xl px-3.5 py-2 text-xs font-bold hover:bg-slate-700/60 transition-colors">&#9200; Late{lateList(S).length > 0 && <span className="ml-1.5 inline-flex min-w-[18px] h-[18px] px-1 rounded-full bg-amber-500 text-slate-950 text-[10px] font-black items-center justify-center">{lateList(S).length}</span>}</button>
+              <button disabled={!canAct || !isToday} onClick={() => { setMoveMode(!moveMode); setSel({}); }} className={'border rounded-xl px-3.5 py-2 text-xs font-bold transition-colors disabled:opacity-40 ' + (moveMode ? 'bg-sky-700 border-sky-300' : 'bg-[#14213f] border-slate-500/60 hover:bg-slate-700/60')}>&#9745; Multi-move</button>
+              <button onClick={() => setDark(!dark)} title="Dark mode" className={'border rounded-xl px-3 py-2 text-xs font-bold transition-colors ' + (dark ? 'bg-sky-700 border-sky-300' : 'bg-[#14213f] border-slate-500/60 hover:bg-slate-700/60')}>&#127769;</button>
+              <button onClick={() => setTv(!tv)} title="TV mode: big text, dark, auto-scroll" className={'border rounded-xl px-3 py-2 text-xs font-bold transition-colors ' + (tv ? 'bg-sky-700 border-sky-300' : 'bg-[#14213f] border-slate-500/60 hover:bg-slate-700/60')}>&#128250; TV</button>
+              <div className="flex items-center gap-1 bg-[#14213f] border border-slate-600/60 rounded-xl p-1">
+                {DAYS.map((d) => (
+                  <button key={d} onClick={() => setDay(d)} className={'relative px-3 py-1.5 rounded-lg text-[11px] font-bold ' + (d === selDay ? 'bg-sky-700 text-white ring-2 ring-white/80' : 'text-slate-300 hover:bg-slate-700/60')}>{d}{d === realDay && <span className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-emerald-400 border border-[#14213f]"></span>}</button>
+                ))}
+              </div>
+            </div>
+          </header>
+
+          {!isToday && <div className="bg-amber-50 border-b border-amber-200 text-amber-800 text-xs text-center py-1.5">Previewing <b>{selDay}</b> plan. Read-only. <button className="underline font-semibold" onClick={() => setDay(realDay)}>Back to today</button></div>}
+
+          {/* sticky alert stack */}
+          {alertCount > 0 && (
+            <div className="sticky top-0 z-40 bg-slate-100/95 backdrop-blur border-b border-slate-200">
+              <div className="max-w-[1700px] mx-auto px-4 py-2 space-y-1.5 max-h-[40vh] overflow-y-auto">
+                {(S.minStaffBreaches || []).length > 0 && <div className="bg-rose-600 text-white text-xs rounded-lg px-3 py-1.5 pulse-red"><b>Minimum staff breached:</b> {(S.minStaffBreaches || []).map((b) => b.code + ' (' + b.active + '/' + b.min + ')').join(', ')}</div>}
+                {anns.map((a) => (
+                  <div key={a.id} className="bg-indigo-50 border border-indigo-200 text-indigo-900 text-xs rounded-lg px-3 py-1.5 flex items-center justify-between gap-2">
+                    <div className="min-w-0"><b>&#128226; {a.target === 'ALL' ? 'Everyone' : a.target}:</b> {a.message} <span className="text-indigo-500 font-semibold">&#10004; {a.ackedCount}/{a.total}</span></div>
+                    <Btn small disabled={busy} onClick={() => run('announceEnd', { id: a.id }, 'Announcement ended')}>End</Btn>
+                  </div>
+                ))}
+                {helps.map((h) => (
+                  <div key={h.id} className={'text-xs rounded-lg px-3 py-1.5 flex items-center justify-between gap-2 ' + (h.escalated ? 'bg-rose-600 border-2 border-rose-900 text-white pulse-red' : 'bg-rose-50 border border-rose-300 text-rose-900')}>
+                    <div className="min-w-0"><b>&#128680; Help call:</b> {h.empName} at {h.location} ({h.station}) &middot; {h.timeStr}{h.reason ? <span className={'ml-1 font-bold px-1.5 py-0.5 rounded ' + (h.escalated ? 'bg-white/25' : 'bg-rose-200 text-rose-900')}>&#9888; {h.reason}</span> : null}{h.escalated ? <b className="ml-1">&#9200; NOT ACCEPTED for {Math.floor((h.waitMs || 0) / 60000)} min - TL notified</b> : null} &middot; {h.helperName ? h.helperName + ' is coming' : h.status === 'accepted' ? '✔ accepted by ' + (h.acceptedByRole === 'Dashboard' ? 'Supervisor (Dashboard)' : h.acceptedBy + (h.acceptedByRole ? ' (' + h.acceptedByRole + ')' : '')) + (h.acceptedAtStr ? ' at ' + h.acceptedAtStr : '') : 'awaiting response'}{h.imageUrl ? <span className="ml-2"><PhotoThumb url={h.imageUrl} h="h-9" /></span> : null}</div>
+                    <div className="flex gap-1 shrink-0">
+                      <Btn small tone="blue" disabled={busy} onClick={() => setModal({ type: 'helpHelper', req: h })}>Send helper</Btn>
+                      <Btn small tone="green" disabled={busy} onClick={() => callApi('resolveHelpRequest', [h.id], 'Help call cleared')}>Clear</Btn>
+                    </div>
+                  </div>
+                ))}
+                {recentHelp.map((h) => (
+                  <div key={h.id} className="bg-emerald-50 border border-emerald-200 text-emerald-900 text-xs rounded-lg px-3 py-1.5 flex items-center justify-between gap-2 rise-in">
+                    <div className="min-w-0">{HELP_ICON[h.type]} <b>{helpEventText(h)}</b> <span className="text-emerald-600">&middot; {h.timeStr}</span></div>
+                    <Btn small onClick={() => setModal({ type: 'helplog' })}>Log</Btn>
+                  </div>
+                ))}
+                {summons.map((s) => (
+                  <div key={s.id} className="bg-amber-50 border border-amber-300 text-amber-900 text-xs rounded-lg px-3 py-1.5 flex items-center justify-between gap-2">
+                    <div className="min-w-0"><b>&#128276; Summoned:</b> {s.targetName} &middot; "{s.message}" &middot; awaiting acknowledgement</div>
+                    <Btn small disabled={busy} onClick={() => run('ringCancel', { empId: s.targetId }, 'Call cancelled')}>Cancel</Btn>
+                  </div>
+                ))}
+                {over.map((o) => (
+                  <div key={o.empId} className="bg-rose-50 border border-rose-300 text-rose-900 text-xs rounded-lg px-3 py-1.5 flex items-center justify-between gap-2">
+                    <div><b>Break overstay:</b> {o.name} ({o.station}) is {o.overtimeMins} min over a {o.scheduledMins} min break</div>
+                    <div className="flex gap-1 shrink-0"><Btn small tone="amber" disabled={busy || !canAct} onClick={() => setModal({ type: 'call', emp: { id: o.empId, name: o.name }, preset: 'Break ended - return to line' })}>&#128276; Call</Btn><Btn small tone="green" disabled={busy || !canAct} onClick={() => run('breakEnd', { empId: o.empId }, 'Returned')}>Return</Btn></div>
+                  </div>
+                ))}
+                {nsPending > 0 && (
+                  <div className="bg-sky-50 border border-sky-200 text-sky-900 text-xs rounded-lg px-3 py-1.5 flex items-center justify-between gap-2">
+                    <div><b>&#128230; Non Sort:</b> {nsPending} request{nsPending > 1 ? 's' : ''} waiting for a count</div>
+                    <Btn small tone="blue" onClick={() => setModal({ type: 'nonsort' })}>Open Non Sort</Btn>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {moveMode && (
+            <div className="bg-sky-50 border-b border-sky-200 sticky top-0 z-30">
+              <div className="max-w-[1700px] mx-auto px-4 py-2 flex flex-wrap items-center gap-2 text-xs">
+                <b className="text-sky-900">Multi-move:</b>
+                <span className="text-slate-600">tick CCs (or drag a card onto a line box), then pick the line.</span>
+                <span className="font-black text-sky-800">{Object.keys(sel).filter((k) => sel[k]).length} selected</span>
+                <select value={moveTarget} onChange={(e) => setMoveTarget(e.target.value)} className="border border-slate-300 rounded-lg px-2 py-1 text-xs bg-white">
+                  <option value="">Move to...</option>
+                  {Object.keys(defs).filter((c) => !disabled[c]).map((c) => <option key={c} value={c}>{c} - {(defs[c] || {}).name}</option>)}
+                </select>
+                <Btn small tone="blue" disabled={busy || !moveTarget || !Object.keys(sel).some((k) => sel[k])} onClick={() => run('swapMany', { empIds: Object.keys(sel).filter((k) => sel[k]), target: moveTarget }, (r) => 'Moved ' + r.moved + ' to ' + moveTarget + (r.skipped && r.skipped.length ? ' (skipped ' + r.skipped.length + ')' : ''))}>Move selected</Btn>
+                <Btn small onClick={() => setSel({})}>Clear ticks</Btn>
+              </div>
+            </div>
+          )}
+
+          {/* KPI band + workstation overview */}
+          <div className="bg-white border-b border-slate-200">
+            <div className="max-w-[1700px] mx-auto px-4 py-2.5 flex flex-wrap items-center gap-2">
+              <Chip>&#128197; Schedule: <b>{selDay.toUpperCase()}</b>{isToday ? <span className={'text-[9px] font-black tracking-wide px-1.5 py-0.5 rounded border ' + (S.isShiftActive ? 'bg-emerald-100 text-emerald-700 border-emerald-200' : 'bg-slate-100 text-slate-500 border-slate-200')}>{S.isShiftActive ? 'LIVE SHIFT' : 'CLOSED'}</span> : <span className="text-[9px] font-black tracking-wide px-1.5 py-0.5 rounded border bg-amber-100 text-amber-700 border-amber-200">PLAN</span>}</Chip>
+              <Chip tone="emerald">&#128100; <b>{counts.present}</b> Present</Chip>
+              <Chip tone="rose">&#128683; <b>{counts.absent}</b> Absent</Chip>
+              {counts.eo > 0 && <Chip tone="amber">&#128682; <b>{counts.eo}</b> Early out</Chip>}
+              {counts.wo > 0 && <Chip tone="slate"><b>{counts.wo}</b> Week off</Chip>}
+              <Chip tone="amber">&#9749; Breaks: <span className="text-[10px] font-black px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700 border border-emerald-200">{breaksDone} Done</span><span className="text-slate-400">&bull;</span><span className="text-[10px] font-black px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 border border-amber-300">{breaksPending} Pending</span>{breakingNow > 0 && <><span className="text-slate-400">&bull;</span><span className="text-[10px] font-black px-1.5 py-0.5 rounded bg-rose-100 text-rose-700 border border-rose-200">{breakingNow} Out</span></>}</Chip>
+              <div className="flex items-center gap-1 border border-amber-300 bg-amber-50/60 rounded-lg px-2 py-1">
+                <span className="text-[11px] font-semibold text-slate-700 mr-1">Timer:</span>
+                {[30, 45, 50].map((m) => <button key={m} disabled={!isToday || busy} onClick={() => run('breakDuration', { mins: m }, 'Break set to ' + m + ' min')} className={'px-2 py-0.5 rounded-md text-[11px] font-bold border ' + (S.breakDurationSetting === m ? 'bg-amber-700 text-white border-amber-700' : 'bg-white text-slate-600 border-slate-300') + ' disabled:opacity-40'}>{m}m</button>)}
+              </div>
+              {(S.helpStats || {}).raised > 0 && <Chip tone="rose">&#128680; Help: <b>{S.helpStats.raised}</b> &middot; avg {S.helpStats.accepted ? fmtSecsShort(S.helpStats.totalMs / S.helpStats.accepted / 1000) : '-'}{S.helpStats.escalated > 0 ? <b className="text-rose-700"> &middot; {S.helpStats.escalated} slow</b> : null}</Chip>}
+              {((S.overstayDone || 0) + over.length) > 0 && <Chip tone="amber">&#9201; Overstays: <b>{(S.overstayDone || 0) + over.length}</b></Chip>}
+              {forecastWarn.length > 0 && <Chip tone="amber">&#128302; Next break risk: {forecastWarn.map((f) => f.code + ' ' + f.after + '/' + f.min).join(', ')}</Chip>}
+              <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search name or ID..." className="border border-slate-300 rounded-lg px-3 py-1.5 text-xs outline-none focus:border-sky-600 w-36 bg-slate-50" />
+              <div className="ml-auto flex items-center gap-1.5 flex-wrap">
+                {shortages.length === 0 ? <Chip tone="emerald">&#10004; All workstations staffed</Chip>
+                  : <Chip tone="rose">&#9888; Shortage: {shortages.map((x) => x.text).join(', ')}</Chip>}
+              </div>
+            </div>
+
+            {view === 'board' && (
+              <div className="max-w-[1700px] mx-auto px-4 pb-4 pt-1">
+                {inspect && <div className="mb-2"><Btn small onClick={() => setInspect('')}>Show all lines</Btn></div>}
+                <div className="grid grid-cols-[repeat(auto-fill,minmax(112px,1fr))] gap-2.5">
+                  {ovCodes.map((c) => {
+                    const d = defs[c]; const dis = !!disabled[c]; const br = breachMap[c]; const st = stat[c];
+                    const mn = (S.minStaff || {})[c] || 0; const bad = st.kind === 'short' || !!br;
+                    const pillTone = st.kind === 'short' ? 'bg-rose-100 text-rose-700 border-rose-200' : (st.kind === 'ok' || st.kind === 'extra') ? 'bg-emerald-100 text-emerald-700 border-emerald-200' : 'bg-slate-100 text-slate-600 border-slate-200';
+                    return (
+                      <div key={c} onClick={() => setModal({ type: 'lineinfo', code: c })} className={'cursor-pointer rounded-xl border p-2 shadow-sm transition-all duration-200 ease-out hover:-translate-y-0.5 hover:shadow-md active:scale-[.97] ' + (inspect === c ? 'ring-2 ring-sky-500 ' : '') + (bad ? 'border-rose-400 bg-rose-50/60 ' : 'border-slate-200 bg-white ') + (br ? 'pulse-red ' : '') + (dis ? 'opacity-60' : '')}>
+                        <div className="flex items-center justify-between gap-1">
+                          <span className={'text-[10px] font-black text-white px-1.5 py-0.5 rounded ' + (d.headerBg || 'bg-slate-600')}>{c}</span>{fcMap[c] && <span title={'Next break would leave ' + fcMap[c].after + ' of minimum ' + fcMap[c].min} className="text-[9px] font-black text-amber-800 bg-amber-100 border border-amber-300 rounded px-1">&#9888; {fcMap[c].after}/{fcMap[c].min}</span>}
+                          <button disabled={!canAct || busy} onClick={(e) => { e.stopPropagation(); run('toggleTask', { code: c }, dis ? c + ' enabled' : c + ' disabled'); }} className="text-[9px] font-semibold px-1.5 py-0.5 rounded border bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100 disabled:opacity-40">{dis ? 'Enable' : 'Disable'}</button>
+                        </div>
+                        <div className="text-[11px] font-bold text-slate-800 mt-1.5 truncate" title={d.name}>{d.name}</div>
+                        <div className="flex items-center justify-between mt-1.5 text-[10px] text-slate-500" title={st.have - st.active > 0 ? (st.have - st.active) + ' on break' : 'Click for full details'}><span>Active:</span><span className={'font-bold rounded px-1.5 py-0.5 border ' + pillTone}>{st.active}/{st.planned}</span></div>
+                        <div className="flex items-center justify-between mt-1.5 text-[10px] text-slate-500" onClick={(e) => e.stopPropagation()}>
+                          <span className="leading-tight">Min<br />alarm:</span>
+                          <div className="flex items-center gap-1">
+                            <button disabled={!canAct || busy || mn <= 0} onClick={(e) => { e.stopPropagation(); run('minStaff', { code: c, n: mn - 1 }); }} className="w-5 h-5 rounded border border-slate-300 bg-white text-xs leading-none disabled:opacity-30">&minus;</button>
+                            <span className={'text-xs font-bold w-4 text-center ' + (br ? 'text-rose-600' : 'text-slate-700')}>{mn > 0 ? mn : '–'}</span>
+                            <button disabled={!canAct || busy} onClick={(e) => { e.stopPropagation(); run('minStaff', { code: c, n: mn + 1 }); }} className="w-5 h-5 rounded border border-slate-300 bg-white text-xs leading-none disabled:opacity-30">+</button>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                  <button disabled={!canAct} onClick={() => setModal({ type: 'addTask' })} className="rounded-xl border-2 border-dashed border-emerald-300 text-emerald-700 bg-emerald-50/40 hover:bg-emerald-50 disabled:opacity-40 min-h-[96px] flex flex-col items-center justify-center text-[11px] font-bold"><span className="text-xl leading-none">+</span>Add Task</button>
+                </div>
+              </div>
+            )}
+          </div>
+
+          <main className="max-w-[1700px] mx-auto px-4 py-5 space-y-4">
+            {view === 'board' && (
+              <section className="grid grid-cols-[repeat(auto-fill,minmax(15rem,1fr))] gap-3">
+                {visibleCols.filter((c) => c.t !== 'break' || isToday).map((c, i) => (
+                  <div key={c.t === 'break' ? 'BRK' : c.code} id={'box-' + (c.t === 'break' ? 'BRK' : c.code)} data-box={i} className={'h-[26rem] max-h-[75vh] scroll-mt-24 rise-in rounded-2xl transition-shadow ' + (dropOn === c.code ? 'ring-4 ring-sky-400' : '')}
+                    onDragOver={(ev) => { if (c.t !== 'break' && canAct) { ev.preventDefault(); if (dropOn !== c.code) setDropOn(c.code); } }}
+                    onDragLeave={() => { if (dropOn === c.code) setDropOn(''); }}
+                    onDrop={(ev) => { if (c.t === 'break' || !canAct) return; ev.preventDefault(); setDropOn(''); let ids = []; try { ids = JSON.parse(ev.dataTransfer.getData('text/plain')) || []; } catch (x) {} if (ids.length) { run('swapMany', { empIds: ids, target: c.code }, (r) => 'Moved ' + r.moved + ' to ' + c.code); setSel({}); } }}>
+                    {c.t === 'break' ? BreakCol() : LineCol({ code: c.code })}
+                  </div>
+                ))}
+              </section>
+            )}
+
+            {view === 'roster' && <RosterTable {...{ S, emps, att, asg, selDay, isToday, canAct, matches, planFor, busy, run, callApi, setModal, eStatusBadge }} />}
+            {view === 'audit' && <Audit history={history} />}
+            {view === 'weekly' && <Weekly weekly={weekly} weekDays={weekDays} setWeekDays={setWeekDays} />}
+          </main>
+
+          {toastMsg && <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-[90] bg-slate-900 text-white text-xs font-semibold px-4 py-2 rounded-xl shadow-xl max-w-[90vw]">{toastMsg}</div>}
+          {modal && <Modals {...{ modal, setModal, S, emps, att, asg, defs, run, callApi, busy, toast, nowSrv }} />}
+        </div>
+      );
+    }
+
+    function RosterTable({ S, emps, att, asg, selDay, isToday, canAct, matches, planFor, busy, run, callApi, setModal, eStatusBadge }) {
+      const rows = emps.filter(matches);
+      const label = { Present: 'Present', AB: 'Absent', LV: 'Leave', WO: 'Week Off', EO: 'Early Out' };
+      return (
+        <section className="bg-white border border-slate-200 rounded-xl">
+          <div className="p-3 flex flex-wrap items-center justify-between gap-2 border-b border-slate-200">
+            <h2 className="text-xs font-bold text-slate-700 uppercase tracking-wide">Roster ({rows.length})</h2>
+            <div className="flex gap-2">
+              <Btn small tone="green" disabled={!canAct || busy} onClick={() => run('markAllPresent', {}, (r) => r.changed ? r.changed + ' marked present' : 'Everyone already present')}>&#10004; Mark all Present</Btn>
+              <Btn small tone="blue" disabled={busy} onClick={() => setModal({ type: 'joiner' })}>+ Add Joiner</Btn>
+            </div>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs">
+              <thead className="bg-slate-50 text-slate-500 text-[10px] uppercase"><tr><th className="text-left px-3 py-2">ID</th><th className="text-left px-3 py-2">Name</th><th className="text-left px-3 py-2">{isToday ? 'Plan / Now' : selDay + ' plan'}</th><th className="text-left px-3 py-2">Attendance</th><th className="text-left px-3 py-2">Notes</th><th className="px-3 py-2"></th></tr></thead>
+              <tbody>
+                {rows.map((e) => {
+                  const a = asg[e.id] || {}; const s = att[e.id] || 'Present';
+                  return (
+                    <tr key={e.id} className="border-t border-slate-100 hover:bg-slate-50">
+                      <td className="px-3 py-2 font-mono text-slate-500">{e.id}</td>
+                      <td className="px-3 py-2 font-semibold">{e.name}</td>
+                      <td className="px-3 py-2">{planFor(e, selDay)}{isToday && s === 'Present' && curStation(a, '') !== planFor(e, selDay) ? ' → ' + curStation(a, '') : ''}</td>
+                      <td className="px-3 py-2">
+                        <div className="flex items-center gap-1">
+                          <select disabled={!isToday || busy} value={s} onChange={(ev) => {
+                            const v = ev.target.value;
+                            if (v === 'EO') setModal({ type: 'time', kind: 'early', emp: e });
+                            else run('attendance', { empId: e.id, kind: v }, e.name + ': ' + label[v]);
+                          }} className="border border-slate-300 rounded-md px-1.5 py-1 text-xs bg-white disabled:opacity-50">
+                            {Object.keys(label).map((k) => <option key={k} value={k}>{label[k]}</option>)}
+                          </select>
+                          <Btn small disabled={!isToday || busy || s === 'WO' || s === 'AB' || s === 'LV'} onClick={() => setModal({ type: 'time', kind: 'late', emp: e })}>&#9200; Late</Btn>
+                        </div>
+                      </td>
+                      <td className="px-3 py-2"><div className="flex gap-1 flex-wrap">{eStatusBadge(e)}</div></td>
+                      <td className="px-3 py-2 text-right"><Btn small tone="ghost" disabled={busy} onClick={() => setModal({ type: 'delete', emp: e })}>&#128465;</Btn></td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      );
+    }
+
+    function Audit({ history }) {
+      const [open, setOpen] = useState('');
+      if (history === null) return <div className="text-sm text-slate-500 p-6 text-center">Loading history...</div>;
+      if (!history.length) return <div className="text-sm text-slate-500 p-6 text-center bg-white border border-slate-200 rounded-xl">No archived shifts yet. A record is saved automatically at 9:00 AM.</div>;
+      return (
+        <section className="space-y-2">
+          {history.map((h, i) => {
+            const k = (h.id || '') + i; const s = h.summary || {};
+            return (
+              <div key={k} className="bg-white border border-slate-200 rounded-xl">
+                <button className="w-full text-left px-3 py-2.5 flex flex-wrap items-center justify-between gap-2" onClick={() => setOpen(open === k ? '' : k)}>
+                  <div><div className="text-xs font-bold">{h.savedAt}</div><div className="text-[11px] text-slate-500">{h.day} &middot; staff {s.totalStaff} &middot; present {s.presentCount} &middot; absent {s.absentCount} &middot; week off {s.weekoffCount} &middot; breaks {s.breaksTakenCount}</div></div>
+                  <span className="text-slate-400 text-xs">{open === k ? 'Hide' : 'Details'}</span>
+                </button>
+                {open === k && (
+                  <div className="border-t border-slate-100 overflow-x-auto">
+                    <table className="w-full text-[11px]"><thead className="bg-slate-50 text-slate-500 uppercase text-[10px]"><tr><th className="text-left px-3 py-1.5">Name</th><th className="text-left px-3 py-1.5">Attendance</th><th className="text-left px-3 py-1.5">Planned</th><th className="text-left px-3 py-1.5">Station</th><th className="text-left px-3 py-1.5">Role</th><th className="text-left px-3 py-1.5">Break</th></tr></thead>
+                      <tbody>{(h.roster || []).map((r) => <tr key={r.id} className="border-t border-slate-100"><td className="px-3 py-1.5 font-semibold">{r.name}</td><td className="px-3 py-1.5">{r.attendance}</td><td className="px-3 py-1.5">{r.planned}</td><td className="px-3 py-1.5">{r.activeStation}</td><td className="px-3 py-1.5">{r.roleText}</td><td className="px-3 py-1.5">{r.breakSummary}</td></tr>)}</tbody></table>
+                    {(!h.roster || !h.roster.length) && <div className="p-3 text-xs text-slate-400">No per-person detail stored for this record.</div>}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </section>
+      );
+    }
+
+    function Weekly({ weekly, weekDays, setWeekDays }) {
+      const rows = (weekly && weekly.rows) || [];
+      const tot = rows.reduce((t, r) => { Object.keys(r).forEach((k) => { if (typeof r[k] === 'number') t[k] = (t[k] || 0) + r[k]; }); return t; }, {});
+      const fm = (m) => (m >= 60 ? Math.floor(m / 60) + 'h ' + String(m % 60).padStart(2, '0') + 'm' : m + 'm');
+      return (
+        <section className="bg-white border border-slate-200 rounded-xl">
+          <div className="p-3 flex flex-wrap items-center justify-between gap-2 border-b border-slate-200">
+            <div><h2 className="text-xs font-bold text-slate-700 uppercase tracking-wide">Weekly Record</h2>{weekly && weekly.success && <div className="text-[11px] text-slate-500">From {weekly.from} &middot; {weekly.shiftCount} shift(s) recorded</div>}</div>
+            <div className="flex gap-1">{[7, 14, 30].map((d) => <button key={d} onClick={() => setWeekDays(d)} className={'px-2.5 py-1 rounded-md text-[11px] font-bold border ' + (weekDays === d ? 'bg-sky-700 text-white border-sky-700' : 'bg-white text-slate-600 border-slate-300')}>{d} days</button>)}</div>
+          </div>
+          {weekly === null ? <div className="p-6 text-center text-sm text-slate-500">Loading...</div> : !weekly.success ? <div className="p-6 text-center text-sm text-rose-600">{weekly.error || 'Could not load.'}</div> : rows.length === 0 ? <div className="p-6 text-center text-sm text-slate-500">No shifts recorded in this period yet.</div> : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs">
+                <thead className="bg-slate-50 text-slate-500 text-[10px] uppercase"><tr>{['Name', 'On duty', 'Absent', 'Late (days)', 'Late (min)', 'Early outs', 'Helper time', 'Helper sessions', 'Break overstay (count)', 'Overstay (min)'].map((h) => <th key={h} className="text-left px-3 py-2 whitespace-nowrap">{h}</th>)}</tr></thead>
+                <tbody>
+                  {rows.map((r) => <tr key={r.id} className="border-t border-slate-100 hover:bg-slate-50"><td className="px-3 py-1.5 font-semibold">{r.name}</td><td className="px-3 py-1.5">{r.daysOnDuty}</td><td className="px-3 py-1.5">{r.absent}</td><td className="px-3 py-1.5">{r.lateCount}</td><td className="px-3 py-1.5">{r.lateMins}</td><td className="px-3 py-1.5">{r.earlyOuts}</td><td className="px-3 py-1.5">{fm(r.helperMins)}</td><td className="px-3 py-1.5">{r.helperSessions}</td><td className="px-3 py-1.5">{r.overstayCount}</td><td className="px-3 py-1.5">{r.overstayMins}</td></tr>)}
+                  <tr className="border-t-2 border-slate-300 bg-slate-50 font-bold"><td className="px-3 py-2">Total</td><td className="px-3 py-2">{tot.daysOnDuty || 0}</td><td className="px-3 py-2">{tot.absent || 0}</td><td className="px-3 py-2">{tot.lateCount || 0}</td><td className="px-3 py-2">{tot.lateMins || 0}</td><td className="px-3 py-2">{tot.earlyOuts || 0}</td><td className="px-3 py-2">{fm(tot.helperMins || 0)}</td><td className="px-3 py-2">{tot.helperSessions || 0}</td><td className="px-3 py-2">{tot.overstayCount || 0}</td><td className="px-3 py-2">{tot.overstayMins || 0}</td></tr>
+                </tbody>
+              </table>
+            </div>
+          )}
+        </section>
+      );
+    }
+
+    function Modals({ modal, setModal, S, emps, att, asg, defs, run, callApi, busy, toast, nowSrv }) {
+      const close = () => setModal(null);
+      const [text, setText] = useState(modal.preset || '');
+      const [target, setTarget] = useState('ALL');
+      const [time, setTime] = useState(() => { try { return new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Riyadh', hour: '2-digit', minute: '2-digit', hour12: false }).format(new Date(nowSrv())); } catch (e) { return ''; } });
+      const [tcode, setTcode] = useState(''), [tname, setTname] = useState(''), [color, setColor] = useState(0);
+      const [jn, setJn] = useState(''), [jid, setJid] = useState(''), [jtask, setJtask] = useState('PK'), [jwo, setJwo] = useState(''), [jpw, setJpw] = useState('');
+      const lines = Object.keys(defs).filter((c) => !(S.disabledTasks || {})[c]);
+
+      if (modal.type === 'nonsort') return <NsPopup S={S} busy={busy} run={run} close={close} />;
+      if (modal.type === 'helplog') return <HelpLogPopup S={S} close={close} />;
+      if (modal.type === 'lineinfo') return <LineInfoPopup S={S} code={modal.code} emps={S.employees || []} att={att} asg={asg} defs={defs} nowSrv={nowSrv} close={close} />;
+      if (modal.type === 'report') return <ReportPopup S={S} close={close} nowSrv={nowSrv} toast={toast} />;
+      if (modal.type === 'late') return <LatePopup S={S} close={close} />;
+      if (modal.type === 'broadcast') return <BroadcastPopup S={S} close={close} callApi={callApi} busy={busy} toast={toast} />;
+      if (modal.type === 'prod') return <ProductivityPopup close={close} ver={(S.prodVer || {}).v || (S.prodVer || {}).rows} />;
+
+      if (modal.type === 'line') {
+        const e = modal.emp; const isHelper = modal.mode === 'helper';
+        return (
+          <Modal title={(isHelper ? 'Deploy helper: ' : 'Swap line: ') + e.name} onClose={close}>
+            <p className="text-xs text-slate-500 mb-3">{isHelper ? 'Temporary help. Their time on the other line is recorded.' : 'Permanently moves them to the chosen line for today.'}</p>
+            <div className="grid grid-cols-2 gap-2">
+              {lines.map((c) => <button key={c} disabled={busy} onClick={() => { close(); run(isHelper ? 'helperDeploy' : 'swap', { empId: e.id, target: c }, e.name + ' → ' + c); }} className={'text-left border rounded-lg px-3 py-2 text-xs hover:bg-slate-50 ' + 'border-slate-200'}><span className={'inline-block text-[10px] font-bold text-white px-1.5 py-0.5 rounded mr-1.5 ' + (defs[c].headerBg || 'bg-slate-600')}>{c}</span>{defs[c].name}</button>)}
+            </div>
+          </Modal>
+        );
+      }
+      if (modal.type === 'call') {
+        const e = modal.emp;
+        return (
+          <Modal title={'Call ' + e.name} onClose={close}>
+            <p className="text-xs text-slate-500 mb-2">Their PDA will buzz until they acknowledge.</p>
+            <div className="space-y-1.5 mb-3">{SUMMON_PRESETS.map((p) => <button key={p} onClick={() => setText(p)} className={'w-full text-left border rounded-lg px-3 py-1.5 text-xs ' + (text === p ? 'border-sky-600 bg-sky-50' : 'border-slate-200 hover:bg-slate-50')}>{p}</button>)}</div>
+            <input value={text} onChange={(ev) => setText(ev.target.value)} maxLength={120} placeholder="Or type a reason" className="w-full border border-slate-300 rounded-lg px-3 py-2 text-xs mb-3 outline-none focus:border-sky-600" />
+            <Btn tone="amber" disabled={busy || !text.trim()} onClick={() => { close(); run('ring', { empId: e.id, message: text.trim() }, 'Bell rung: ' + e.name); }}>&#128276; Ring bell</Btn>
+          </Modal>
+        );
+      }
+      if (modal.type === 'announce') {
+        return (
+          <Modal title="Announcement" onClose={close}>
+            <label className="text-[11px] font-semibold text-slate-500">Send to</label>
+            <select value={target} onChange={(ev) => setTarget(ev.target.value)} className="w-full border border-slate-300 rounded-lg px-3 py-2 text-xs mb-3 mt-1"><option value="ALL">Everyone</option>{Object.keys(defs).map((c) => <option key={c} value={c}>{c} - {defs[c].name}</option>)}</select>
+            <textarea rows={4} maxLength={240} value={text} onChange={(ev) => setText(ev.target.value)} placeholder="Message (max 240 characters)" className="w-full border border-slate-300 rounded-lg px-3 py-2 text-xs outline-none focus:border-sky-600" />
+            <div className="text-right text-[10px] text-slate-400 mb-3">{text.length} / 240</div>
+            <Btn tone="blue" disabled={busy || !text.trim()} onClick={() => { close(); run('announce', { target, message: text.trim() }, 'Announcement sent'); }}>Send</Btn>
+          </Modal>
+        );
+      }
+      if (modal.type === 'time') {
+        const e = modal.emp; const early = modal.kind === 'early';
+        return (
+          <Modal title={(early ? 'Early out: ' : 'Late arrival: ') + e.name} onClose={close}>
+            <p className="text-xs text-slate-500 mb-2">{early ? 'Time they left. They are removed from their line.' : 'Time they arrived. Late minutes are counted from 12:00 AM.'}</p>
+            <input type="time" value={time} onChange={(ev) => setTime(ev.target.value)} className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm mb-3" />
+            <Btn tone="blue" disabled={busy || !time} onClick={() => { close(); run('attendance', { empId: e.id, kind: modal.kind, time }, e.name + (early ? ' left at ' : ' arrived at ') + time); }}>Save</Btn>
+          </Modal>
+        );
+      }
+      if (modal.type === 'addTask') {
+        return (
+          <Modal title="Add workstation" onClose={close}>
+            <input value={tcode} onChange={(ev) => setTcode(ev.target.value.toUpperCase())} maxLength={6} placeholder="Code (e.g. QC)" className="w-full border border-slate-300 rounded-lg px-3 py-2 text-xs mb-2" />
+            <input value={tname} onChange={(ev) => setTname(ev.target.value)} maxLength={40} placeholder="Name (e.g. Quality Check)" className="w-full border border-slate-300 rounded-lg px-3 py-2 text-xs mb-2" />
+            <div className="flex gap-1.5 mb-3 flex-wrap">{COLOR_CHOICES.map((c, i) => <button key={c.label} onClick={() => setColor(i)} className={'px-2 py-1 rounded text-[11px] text-white font-semibold ' + c.headerBg + (i === color ? ' ring-2 ring-offset-1 ring-slate-700' : '')}>{c.label}</button>)}</div>
+            <Btn tone="blue" disabled={busy || !tcode.trim()} onClick={() => { const c = COLOR_CHOICES[color]; close(); run('addTask', { code: tcode.trim(), name: tname.trim(), headerBg: c.headerBg, pillBg: c.pillBg }, 'Workstation added'); }}>Add</Btn>
+          </Modal>
+        );
+      }
+      if (modal.type === 'joiner') {
+        return (
+          <Modal title="Add joiner (writes to the Roster sheet)" onClose={close}>
+            <input value={jn} onChange={(ev) => setJn(ev.target.value)} placeholder="Full name" className="w-full border border-slate-300 rounded-lg px-3 py-2 text-xs mb-2" />
+            <input value={jid} onChange={(ev) => setJid(ev.target.value)} placeholder="ID (leave empty to auto-create)" className="w-full border border-slate-300 rounded-lg px-3 py-2 text-xs mb-2" />
+            <div className="grid grid-cols-2 gap-2 mb-2">
+              <select value={jtask} onChange={(ev) => setJtask(ev.target.value)} className="border border-slate-300 rounded-lg px-2 py-2 text-xs">{Object.keys(defs).map((c) => <option key={c} value={c}>{c}</option>)}</select>
+              <select value={jwo} onChange={(ev) => setJwo(ev.target.value)} className="border border-slate-300 rounded-lg px-2 py-2 text-xs"><option value="">Week off: none</option>{DAYS.map((d) => <option key={d} value={d}>Week off: {d}</option>)}</select>
+            </div>
+            <input value={jpw} onChange={(ev) => setJpw(ev.target.value)} placeholder="PDA password (optional)" className="w-full border border-slate-300 rounded-lg px-3 py-2 text-xs mb-3" />
+            <Btn tone="blue" disabled={busy || !jn.trim()} onClick={() => { close(); callApi('addRosterEmployee', [jn.trim(), jid.trim(), jtask, jwo, jpw], 'Joiner added'); }}>Add to roster</Btn>
+          </Modal>
+        );
+      }
+      if (modal.type === 'delete') {
+        const e = modal.emp;
+        return (
+          <Modal title="Remove from roster" onClose={close}>
+            <p className="text-xs text-slate-600 mb-3">Delete <b>{e.name}</b> ({e.id}) from the Roster sheet? This cannot be undone from here.</p>
+            <div className="flex gap-2"><Btn onClick={close}>Cancel</Btn><Btn tone="rose" disabled={busy} onClick={() => { close(); callApi('removeRosterEmployee', [e.id], 'Removed ' + e.name); }}>Delete</Btn></div>
+          </Modal>
+        );
+      }
+      if (modal.type === 'helpHelper') {
+        const req = modal.req;
+        const list = emps.filter((w) => att[w.id] === 'Present' && !(asg[w.id] || {}).onBreak && lc(w.id) !== lc(req.empId));
+        return (
+          <Modal title={'Send helper to ' + req.empName} onClose={close}>
+            <p className="text-xs text-slate-500 mb-2">{req.location} ({req.station})</p>
+            <div className="divide-y divide-slate-100 border border-slate-200 rounded-lg max-h-72 overflow-y-auto">
+              {list.length === 0 && <div className="p-4 text-xs text-slate-400 text-center">No helpers available.</div>}
+              {list.map((w) => <button key={w.id} disabled={busy} onClick={() => { close(); callApi('dispatchHelperToHelpCall', [req.id, w.id], 'Helper sent'); }} className="w-full text-left px-3 py-2 text-xs hover:bg-slate-50 flex justify-between"><span className="font-semibold">{w.name}</span><span className="text-slate-500">{curStation(asg[w.id], '')}</span></button>)}
+            </div>
+          </Modal>
+        );
+      }
+      return null;
+    }
+
+    ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+  </script>
+</body>
+</html>

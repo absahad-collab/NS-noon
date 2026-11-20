@@ -1,0 +1,1963 @@
+/**
+ * Shift A Operations Dashboard + PDA  -  Backend (Google Apps Script, V8 runtime)
+ * Master database: Google Sheet 1L4Cut-LS28NFhueJ1aZAjCQPG7Orx9j_ATSIJoOez4M
+ *
+ * IMPORTANT: every helper in this file ends with "_" on purpose.
+ * Apps Script exposes every top-level function WITHOUT a trailing underscore to
+ * google.script.run (i.e. to anyone who has the web-app link). Only the public API
+ * below is meant to be callable from the browser.
+ */
+
+// ============================== CONFIG ==============================
+var SPREADSHEET_ID = "1L4Cut-LS28NFhueJ1aZAjCQPG7Orx9j_ATSIJoOez4M";
+
+var MY_DASHBOARD_PIN = '';           // '' = NO LOCK (dashboard opens for anyone with the link). Put a PIN here + run setupEverything to lock it.
+var REPORT_EMAILS = [];               // e.g. ['ops.manager@noon.com']; TL emails (Roster column K) are added automatically
+var CHAT_WEBHOOK_URL = '';            // optional Google Chat webhook (urgent pushes). Can also be Script Property CHAT_WEBHOOK_URL
+
+var SHIFT_NAME = 'Shift A';
+var TZ = 'Asia/Riyadh';
+var SHIFT_START_HOUR = 0;             // 12:00 AM
+var SHIFT_END_HOUR = 9;               // 9:00 AM (same calendar day)
+var SHIFT_DAY_OFFSET_HOURS = 0;       // business date = calendar date (shift never crosses midnight)
+var ROSTER_SHEET_NAMES = ['Roster', 'roaster'];
+var NONSORT_SHEET = 'non sort';       // columns: Date, Time, Employee Name, AWB Number, Quantity
+
+var PRODUCTIVITY_SHEET_ID = '1eM9w6IEubhd1oAZ0GPlaSJ2kR1fCsP0EVdKuuSDxHWQ';   // daily productivity export (tab RawData)
+var PRODUCTIVITY_TAB = 'RawData';                // columns: warehouse, exdoc_type, pick_user, put_user, posted_date, posted_time, total_qty, name, id, shift
+var PDA_LOG_SHEET_ID = '1P1O_ahMGSKBoYyWlcHZ6NYDNZAoBtiUwnmOeTss6m9E';   // PDA issue/return log
+var PDA_LOG_TAB = 'PDA_Logs';          // columns: Timestamp, CC ID, CC Name, Shift, PDA Barcode, Action (ISSUED / ISSUED (2nd PDA) / ISSUED (SWAP) / RETURNED / RETURNED (SWAP)), Total Time Used
+var PDA_LOG_ROWS = 6000;               // only the newest rows are read
+var SHEET_UTC_OFFSET_H = 3;            // sheet timestamps are Riyadh time
+var HELP_ESCALATE_MS = 3 * 60000;     // help call not accepted for 3 min -> red escalation + extra TL buzz
+var HELP_REASONS = ['Heavy item', 'Damaged', 'Wrong location', 'Other'];
+var TOKEN_TTL_MS = 16 * 3600 * 1000;
+var MAX_TOKENS_PER_PERSON = 2;
+var MAX_DASH_TOKENS = 5;              // dashboard PIN is shared by supervisors, so allow a few parallel sessions
+var STATE_SHEET = '_State';
+var SHEET_CHUNK = 45000;
+var CACHE_CHUNK = 30000;              // chars per cache key (limit is 100 KB per key)
+var CACHE_TTL = 21600;                // 6 h (CacheService maximum)
+var ROSTER_CACHE_TTL = 60;
+var DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+var DEFAULT_TASKS = {
+  PK:  { name: 'Outbound Picking',      badge: 'PK',  headerBg: 'bg-sky-700',     pillBg: 'bg-sky-100 text-sky-800 border-sky-200' },
+  ST:  { name: 'Stock Take',            badge: 'ST',  headerBg: 'bg-slate-600',   pillBg: 'bg-slate-200 text-slate-800 border-slate-300' },
+  HV:  { name: 'High Value',            badge: 'HV',  headerBg: 'bg-violet-600',  pillBg: 'bg-violet-100 text-violet-800 border-violet-200' },
+  FL:  { name: 'Floor Lead',            badge: 'FL',  headerBg: 'bg-amber-600',   pillBg: 'bg-amber-100 text-amber-800 border-amber-200' },
+  DIS: { name: 'Dispatch',              badge: 'DIS', headerBg: 'bg-cyan-700',    pillBg: 'bg-cyan-100 text-cyan-800 border-cyan-200' },
+  FT:  { name: 'Forward Transfer',      badge: 'FT',  headerBg: 'bg-emerald-700', pillBg: 'bg-emerald-100 text-emerald-800 border-emerald-200' },
+  BT:  { name: 'Back Transfer',         badge: 'BT',  headerBg: 'bg-rose-700',    pillBg: 'bg-rose-100 text-rose-800 border-rose-200' },
+  CIR: { name: 'Returns (CIR)',         badge: 'CIR', headerBg: 'bg-indigo-600',  pillBg: 'bg-indigo-100 text-indigo-800 border-indigo-200' },
+  TL:  { name: 'Team Lead',             badge: 'TL',  headerBg: 'bg-violet-800',  pillBg: 'bg-violet-100 text-violet-800 border-violet-200' },
+  CON: { name: 'Consolidation',         badge: 'CON', headerBg: 'bg-teal-700',    pillBg: 'bg-teal-100 text-teal-800 border-teal-200' },
+  LA:  { name: 'Logistic Associate',    badge: 'LA',  headerBg: 'bg-stone-600',   pillBg: 'bg-stone-100 text-stone-800 border-stone-200' }
+};
+
+// ============================== WEB APP ENTRY ==============================
+function doGet(e) {
+  var page = (e && e.parameter && e.parameter.page) ? String(e.parameter.page).toLowerCase() : '';
+  if (page === 'pda') {
+    return HtmlService.createHtmlOutputFromFile('PDA')
+      .setTitle(SHIFT_NAME + ' - CC PDA Portal')
+      .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL)
+      .addMetaTag('viewport', 'width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no');
+  }
+  return HtmlService.createHtmlOutputFromFile('Index')
+    .setTitle(SHIFT_NAME + ' Operations Dashboard')
+    .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL)
+    .addMetaTag('viewport', 'width=device-width, initial-scale=1');
+}
+
+// ============================== SMALL HELPERS ==============================
+function nowMs_() { return new Date().getTime(); }
+function fmt_(ms, f) { return Utilities.formatDate(new Date(ms), TZ, f); }
+function rid_() { return Math.random().toString(36).substr(2, 6); }
+function clone_(o) { return JSON.parse(JSON.stringify(o)); }
+function lc_(s) { return String(s == null ? '' : s).trim().toLowerCase(); }
+function esc_(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
+function pad2_(n) { return (n < 10 ? '0' : '') + n; }
+function ss_() { return SpreadsheetApp.openById(SPREADSHEET_ID); }
+function cache_() { return CacheService.getScriptCache(); }
+function props_() { return PropertiesService.getScriptProperties(); }
+
+function withLock_(fn) {
+  var lock = LockService.getScriptLock();
+  lock.waitLock(12000);
+  try { return fn(); } finally { try { lock.releaseLock(); } catch (e) {} }
+}
+
+function tzOffsetMs_(ms) {
+  var z = fmt_(ms, 'Z');
+  var sign = z.charAt(0) === '-' ? -1 : 1;
+  return sign * (parseInt(z.substr(1, 2), 10) * 60 + parseInt(z.substr(3, 2), 10)) * 60000;
+}
+function bizInfo_(ms) {
+  var s = ms - SHIFT_DAY_OFFSET_HOURS * 3600000;
+  return { dateStr: fmt_(s, 'yyyy-MM-dd'), dayName: fmt_(s, 'EEE') };
+}
+function dateHourMs_(dateStr, hour) {
+  var p = dateStr.split('-');
+  var utc = Date.UTC(parseInt(p[0], 10), parseInt(p[1], 10) - 1, parseInt(p[2], 10), hour, 0, 0);
+  return utc - tzOffsetMs_(utc);
+}
+function shiftStartMs_(dateStr) { return dateHourMs_(dateStr, SHIFT_START_HOUR); }
+function shiftLenHours_() { return SHIFT_END_HOUR > SHIFT_START_HOUR ? SHIFT_END_HOUR - SHIFT_START_HOUR : 24 - SHIFT_START_HOUR + SHIFT_END_HOUR; }
+function shiftEndMs_(dateStr) { return shiftStartMs_(dateStr) + shiftLenHours_() * 3600000; }
+function isShiftActiveAt_(ms) {
+  var h = parseInt(fmt_(ms, 'H'), 10);
+  if (SHIFT_START_HOUR < SHIFT_END_HOUR) return h >= SHIFT_START_HOUR && h < SHIFT_END_HOUR;
+  return h >= SHIFT_START_HOUR || h < SHIFT_END_HOUR;
+}
+function hourLabel_(h) { var ap = h >= 12 && h < 24 ? 'PM' : 'AM'; var x = h % 12; return (x === 0 ? 12 : x) + ':00 ' + ap; }
+function shiftLabel_() { return hourLabel_(SHIFT_START_HOUR) + ' - ' + hourLabel_(SHIFT_END_HOUR); }
+function addDays_(dateStr, n) {
+  var p = dateStr.split('-');
+  var d = new Date(Date.UTC(parseInt(p[0], 10), parseInt(p[1], 10) - 1, parseInt(p[2], 10) + n));
+  return d.getUTCFullYear() + '-' + pad2_(d.getUTCMonth() + 1) + '-' + pad2_(d.getUTCDate());
+}
+function normTime_(t) {
+  var m = /^\s*(\d{1,2}):(\d{2})\s*$/.exec(String(t || ''));
+  if (!m) return null;
+  var h = parseInt(m[1], 10), mi = parseInt(m[2], 10);
+  if (h > 23 || mi > 59) return null;
+  return pad2_(h) + ':' + pad2_(mi);
+}
+function lateMins_(hhmm) {
+  var p = hhmm.split(':');
+  var h = parseInt(p[0], 10), t = h * 60 + parseInt(p[1], 10);
+  if (SHIFT_START_HOUR >= 12 && h < 12) t += 1440;   // overnight shift: after midnight belongs to this shift
+  return Math.max(0, t - SHIFT_START_HOUR * 60);
+}
+function fmtDuration_(mins) {
+  mins = Math.max(0, Math.round(mins));
+  if (mins < 60) return mins + 'm';
+  return Math.floor(mins / 60) + 'h ' + pad2_(mins % 60) + 'm';
+}
+
+// ============================== STATE STORE (sheet + write-through cache) ==============================
+function readStateSheet_() {
+  var sh = ss_().getSheetByName(STATE_SHEET);
+  if (!sh) return null;
+  var n = sh.getLastRow();
+  if (n < 1) return null;
+  var vals = sh.getRange(1, 1, n, 1).getValues();
+  var s = '';
+  for (var i = 0; i < vals.length; i++) {
+    var c = String(vals[i][0] == null ? '' : vals[i][0]);
+    s += c.charAt(0) === 'J' ? c.substr(2) : c;    // chunks are stored as "J|" + text so Sheets never treats them as formulas/numbers
+  }
+  if (!s) return null;
+  return JSON.parse(s);
+}
+function writeStateSheet_(json) {
+  var ss = ss_();
+  var sh = ss.getSheetByName(STATE_SHEET);
+  if (!sh) {
+    sh = ss.insertSheet(STATE_SHEET);
+    try { sh.hideSheet(); } catch (e) {}
+  }
+  var chunks = [];
+  for (var i = 0; i < json.length; i += SHEET_CHUNK) chunks.push(['J|' + json.substr(i, SHEET_CHUNK)]);
+  if (!chunks.length) chunks.push(['J|']);
+  var prev = sh.getLastRow();
+  sh.getRange(1, 1, chunks.length, 1).setValues(chunks);
+  if (prev > chunks.length) sh.getRange(chunks.length + 1, 1, prev - chunks.length, 1).clearContent();
+}
+function cacheWriteState_(json) {
+  var ver = String(nowMs_()) + rid_();
+  var obj = {}, n = 0;
+  for (var i = 0; i < json.length; i += CACHE_CHUNK) { obj['ST_' + n] = ver + '|' + json.substr(i, CACHE_CHUNK); n++; }
+  obj['ST_META'] = JSON.stringify({ ver: ver, n: n });
+  cache_().putAll(obj, CACHE_TTL);
+}
+function cacheReadState_() {
+  try {
+    var c = cache_();
+    var meta = c.get('ST_META');
+    if (!meta) return null;
+    meta = JSON.parse(meta);
+    var keys = [];
+    for (var i = 0; i < meta.n; i++) keys.push('ST_' + i);
+    var got = c.getAll(keys);
+    var s = '';
+    for (var j = 0; j < keys.length; j++) {
+      var v = got[keys[j]];
+      if (!v || v.indexOf(meta.ver + '|') !== 0) return null;   // partial/mixed write -> treat as miss
+      s += v.substr(meta.ver.length + 1);
+    }
+    return JSON.parse(s);
+  } catch (e) { return null; }
+}
+function loadState_() {
+  var st = cacheReadState_();
+  if (st) return st;
+  st = readStateSheet_();
+  if (st) { try { cacheWriteState_(JSON.stringify(st)); } catch (e) {} }
+  return st;
+}
+function saveState_(state) {
+  state.rev = (state.rev || 0) + 1;
+  var json = JSON.stringify(state);
+  writeStateSheet_(json);
+  try { cacheWriteState_(json); } catch (e) { try { cache_().remove('ST_META'); } catch (e2) {} }
+}
+
+// ============================== ROSTER ==============================
+function systemSheet_(name) {
+  return name === STATE_SHEET || name === 'Daily_Operations_Log' || name === 'Shift_Archive' || name === 'CC_Performance_Log';
+}
+function findRosterSheet_(ss) {
+  var sheets = ss.getSheets();
+  for (var i = 0; i < ROSTER_SHEET_NAMES.length; i++) {
+    for (var j = 0; j < sheets.length; j++) {
+      if (lc_(sheets[j].getName()) === lc_(ROSTER_SHEET_NAMES[i])) return sheets[j];
+    }
+  }
+  for (var k = 0; k < sheets.length; k++) if (!systemSheet_(sheets[k].getName())) return sheets[k];
+  return null;
+}
+function readRoster_() {
+  try {
+    var sheet = findRosterSheet_(ss_());
+    if (!sheet) return null;
+    var data = sheet.getDataRange().getValues();
+    var out = [], seen = {};
+    for (var i = 1; i < data.length; i++) {
+      var r = data[i];
+      var id = String(r[0] == null ? '' : r[0]).trim();
+      if (!id || seen[lc_(id)]) continue;
+      seen[lc_(id)] = true;
+      var plan = {};
+      for (var d = 0; d < 7; d++) {
+        var v = String(r[2 + d] == null ? '' : r[2 + d]).trim().toUpperCase();
+        plan[DAY_NAMES[d]] = v || 'PK';
+      }
+      out.push({
+        id: id,
+        name: String(r[1] || id).trim(),
+        plan: plan,
+        password: String(r[9] == null ? '' : r[9]).trim(),
+        email: String(r[10] == null ? '' : r[10]).trim()
+      });
+    }
+    return out;
+  } catch (e) { return null; }
+}
+function getRoster_() {
+  try {
+    var c = cache_().get('ROSTER');
+    if (c) return JSON.parse(c);
+  } catch (e) {}
+  var r = readRoster_();
+  if (r) { try { var j = JSON.stringify(r); if (j.length < 90000) cache_().put('ROSTER', j, ROSTER_CACHE_TTL); } catch (e) {} }
+  return r;
+}
+function clearRosterCache_() { try { cache_().remove('ROSTER'); cache_().remove('RSYNC'); } catch (e) {} }
+
+// ============================== AUTH ==============================
+function getTokens_() { try { return JSON.parse(props_().getProperty('TOKENS') || '{}'); } catch (e) { return {}; } }
+function saveTokens_(t) {
+  // Script Property values are limited to ~9 KB: drop the oldest sessions first if we ever get close
+  var json = JSON.stringify(t);
+  while (json.length > 8500) {
+    var oldest = null;
+    Object.keys(t).forEach(function (k) { if (oldest === null || t[k].iat < t[oldest].iat) oldest = k; });
+    if (oldest === null) break;
+    delete t[oldest]; json = JSON.stringify(t);
+  }
+  props_().setProperty('TOKENS', json);
+}
+function noPin_() { return !props_().getProperty('DASHBOARD_PIN'); }
+function session_(token) {
+  if (!token) return null;
+  var t = getTokens_()[token];
+  if (!t || t.exp <= nowMs_()) return null;
+  return t;
+}
+function issueToken_(kind, empId) {
+  return withLock_(function () {
+    var now = nowMs_();
+    var toks = getTokens_();
+    Object.keys(toks).forEach(function (k) { if (toks[k].exp <= now) delete toks[k]; });
+    var mine = Object.keys(toks).filter(function (k) {
+      return toks[k].kind === kind && (kind === 'D' || lc_(toks[k].empId) === lc_(empId));
+    }).sort(function (a, b) { return toks[a].iat - toks[b].iat; });
+    var max = kind === 'D' ? MAX_DASH_TOKENS : MAX_TOKENS_PER_PERSON;
+    while (mine.length >= max) delete toks[mine.shift()];
+    var token = kind + Utilities.getUuid().replace(/-/g, '').substr(0, 24);
+    toks[token] = { kind: kind, empId: empId || '', iat: now, exp: now + TOKEN_TTL_MS };
+    saveTokens_(toks);
+    return token;
+  });
+}
+function rateKey_(prefix, id) { return 'RL_' + prefix + '_' + lc_(id); }
+function rateLocked_(key) { return !!cache_().get(key + '_LOCK'); }
+function rateFail_(key, limit) {
+  var c = cache_();
+  var n = (parseInt(c.get(key + '_N') || '0', 10) || 0) + 1;
+  if (n >= limit) { c.put(key + '_LOCK', '1', 300); c.remove(key + '_N'); }
+  else c.put(key + '_N', String(n), 300);
+}
+function rateOk_(key) { try { cache_().remove(key + '_N'); } catch (e) {} }
+
+function dashLogin(pin) {
+  try {
+    var saved = props_().getProperty('DASHBOARD_PIN');
+    if (!saved) return { success: true, noPin: true, token: issueToken_('D', '') };
+    var key = rateKey_('PIN', 'dash');
+    if (rateLocked_(key)) return { success: false, error: 'Too many wrong PINs. Try again in 5 minutes.' };
+    if (String(pin == null ? '' : pin).trim() === String(saved)) {
+      rateOk_(key);
+      return { success: true, token: issueToken_('D', '') };
+    }
+    rateFail_(key, 5);
+    return { success: false, error: 'Incorrect PIN.' };
+  } catch (e) { return { success: false, error: String(e && e.message || e) }; }
+}
+
+function getLoginList() {
+  try {
+    var r = getRoster_() || [];
+    return r.map(function (e) { return { id: e.id, name: e.name }; })
+      .sort(function (a, b) { return a.name.localeCompare(b.name); });
+  } catch (e) { return []; }
+}
+
+function verifyPdaPassword(empId, inputPassword) {
+  try {
+    var roster = getRoster_();
+    if (!roster) return { success: false, error: 'Roster not available. Try again.' };
+    var emp = null;
+    for (var i = 0; i < roster.length; i++) if (lc_(roster[i].id) === lc_(empId)) { emp = roster[i]; break; }
+    if (!emp) return { success: false, error: 'User profile not found. Please contact your team lead.' };
+    var key = rateKey_('PW', emp.id);
+    if (rateLocked_(key)) return { success: false, error: 'Too many wrong passwords. Try again in 5 minutes.' };
+    var correct = String(emp.password || '').trim().toUpperCase();
+    var entered = String(inputPassword == null ? '' : inputPassword).trim().toUpperCase();
+    if (!correct || correct === entered) {
+      rateOk_(key);
+      return { success: true, name: emp.name, id: emp.id, token: issueToken_('P', emp.id) };
+    }
+    rateFail_(key, 8);
+    return { success: false, error: 'Incorrect security password. Please try again.' };
+  } catch (e) { return { success: false, error: String(e && e.message || e) }; }
+}
+
+function empById_(state, id) {
+  var l = lc_(id);
+  var list = state.employees || [];
+  for (var i = 0; i < list.length; i++) if (lc_(list[i].id) === l) return list[i];
+  return null;
+}
+function isTL_(state, id) {
+  var e = empById_(state, id);
+  if (!e) return false;
+  var a = state.assignments[e.id] || {};
+  return plannedFor_(e, state.dayName) === 'TL' || a.task1 === 'TL' || a.activeStation === 'TL';
+}
+function isFL_(state, id) {
+  var e = empById_(state, id);
+  if (!e) return false;
+  var a = state.assignments[e.id] || {};
+  return plannedFor_(e, state.dayName) === 'FL' || a.task1 === 'FL' || a.activeStation === 'FL';
+}
+// roles: 'dash' (dashboard PIN = superuser), 'tl', 'fl' (FL or TL), 'self', 'any'
+function checkAuth_(state, token, roles, selfId) {
+  var sess = session_(token);
+  if (!sess) {
+    if (noPin_() && roles.indexOf('dash') >= 0) return { ok: true, sess: { kind: 'D', empId: '', open: true } };
+    return { ok: false, res: { success: false, code: 'AUTH', error: 'Session expired. Please log in again.' } };
+  }
+  if (sess.kind === 'D') return { ok: true, sess: sess };
+  for (var i = 0; i < roles.length; i++) {
+    var r = roles[i];
+    if (r === 'any') return { ok: true, sess: sess };
+    if (r === 'self' && selfId && lc_(selfId) === lc_(sess.empId)) return { ok: true, sess: sess };
+    if (r === 'tl' && isTL_(state, sess.empId)) return { ok: true, sess: sess };
+    if (r === 'fl' && (isFL_(state, sess.empId) || isTL_(state, sess.empId))) return { ok: true, sess: sess };
+  }
+  return { ok: false, res: { success: false, code: 'FORBIDDEN', error: 'You are not allowed to do this.' } };
+}
+
+// ============================== STATE MODEL ==============================
+function plannedFor_(emp, dayName) {
+  var p = emp && emp.plan ? String(emp.plan[dayName] || '').trim().toUpperCase() : '';
+  return p || 'PK';
+}
+function newAssignment_(planned, dur) {
+  var off = planned === 'WO';
+  return {
+    task1: off ? 'None' : planned, task2: 'None', activeStation: off ? 'None' : planned, originalStation: off ? 'None' : planned,
+    isHelping: false, onBreak: false, breakStatus: 'pending', breakStartTime: null, breakEndTime: null, breakDurationMins: dur || 50,
+    helperStartTime: null, helperStartTimeStr: null, coveringFor: '', swappedFrom: '', moveNote: null
+  };
+}
+function defaultTaskStyle_(code) {
+  return { name: code, badge: code, headerBg: 'bg-slate-600', pillBg: 'bg-slate-100 text-slate-800 border-slate-200' };
+}
+function ensureTaskDef_(state, code) {
+  if (code && code !== 'WO' && code !== 'None' && !state.taskDefinitions[code]) { state.taskDefinitions[code] = defaultTaskStyle_(code); return true; }
+  return false;
+}
+function stripEmp_(e) { return { id: e.id, name: e.name, plan: e.plan }; }
+
+// ---------- Non Sort leaderboard (mirrors the "non sort" sheet for the business date) ----------
+function readNsBoardFromSheet_(dateStr) {
+  var sh = ss_().getSheetByName(NONSORT_SHEET);
+  var board = {};
+  if (!sh || sh.getLastRow() < 1) return board;
+  var vals = sh.getRange(1, 1, sh.getLastRow(), 5).getValues();
+  for (var i = 0; i < vals.length; i++) {
+    var r = vals[i];
+    var ds = r[0] instanceof Date ? fmt_(r[0].getTime(), 'yyyy-MM-dd') : String(r[0] == null ? '' : r[0]).trim().substr(0, 10);
+    if (ds !== dateStr) continue;                         // also skips a header row, whatever it says
+    var name = String(r[2] == null ? '' : r[2]).trim();
+    if (!name) continue;
+    var key = lc_(name);
+    var o = board[key] || (board[key] = { empName: name, awbs: 0, totalCount: 0 });
+    o.awbs += 1;
+    o.totalCount += parseInt(r[4], 10) || 0;
+  }
+  return board;
+}
+function refreshNsBoard_(state) {
+  try {
+    var b = readNsBoardFromSheet_(state.dateStr);
+    var changed = JSON.stringify(b) !== JSON.stringify(state.nsBoard || {});
+    state.nsBoard = b;
+    return changed;
+  } catch (e) { return false; }
+}
+function nsLeaderboard_(state) {
+  var b = state.nsBoard || {};
+  return Object.keys(b).map(function (k) { return b[k]; }).sort(function (x, y) { return y.totalCount - x.totalCount || x.empName.localeCompare(y.empName); });
+}
+function appendNonSortRow_(state, req, now) {
+  var ss = ss_();
+  var sh = ss.getSheetByName(NONSORT_SHEET);
+  if (!sh) {
+    sh = ss.insertSheet(NONSORT_SHEET);
+    sh.appendRow(['Date', 'Time', 'Employee Name', 'AWB Number', 'Quantity']);
+    sh.getRange('A1:E1').setBackground('#0f172a').setFontColor('#ffffff').setFontWeight('bold');
+    sh.setFrozenRows(1);
+  }
+  var row = sh.getLastRow() + 1;
+  sh.getRange(row, 1, 1, 4).setNumberFormat('@');         // keep date/time/AWB as plain text, exactly like the existing rows
+  sh.getRange(row, 1, 1, 5).setValues([[state.dateStr, fmt_(now, 'h:mm a'), req.empName, req.awb, req.count]]);
+}
+
+function createDayState_(prev, biz, roster) {
+  var emps = (roster && roster.length) ? roster : ((prev && prev.employees) || []);
+  var tasks = {};
+  var prevTasks = (prev && prev.taskDefinitions) || {};
+  Object.keys(DEFAULT_TASKS).forEach(function (k) { tasks[k] = clone_(DEFAULT_TASKS[k]); });
+  Object.keys(prevTasks).forEach(function (k) { tasks[k] = prevTasks[k]; });
+  var dur = (prev && prev.breakDurationSetting) || 50;
+  var st = {
+    v: 1, rev: 0, dateStr: biz.dateStr, dayName: biz.dayName, concluded: false,
+    employees: emps.map(stripEmp_), attendance: {}, attendanceDetail: {}, assignments: {},
+    disabledTasks: {}, taskDefinitions: tasks, minStaff: (prev && prev.minStaff) ? clone_(prev.minStaff) : {},
+    breakDurationSetting: dur,
+    activeHelpRequests: [], activeSummons: [], announcements: [], helpLog: [], helpStats: { raised: 0, accepted: 0, totalMs: 0, maxMs: 0, escalated: 0 }, helpCount: {}, flAisle: {},
+    nonSortRequests: [], nonSortHistory: [], nsBoard: {},
+    helperWorkHistory: [], breakWorkHistory: [], breachHistory: [],
+    broadcasts: (prev && prev.broadcasts) ? prev.broadcasts.filter(function (b) { return !b.ended && (!b.exp || b.exp > nowMs_()); }).concat(prev.broadcasts.filter(function (b) { return b.ended || (b.exp && b.exp <= nowMs_()); }).slice(0, 10)) : [],
+    lastUpdated: nowMs_()
+  };
+  refreshNsBoard_(st);
+  st.employees.forEach(function (e) {
+    var p = plannedFor_(e, biz.dayName);
+    ensureTaskDef_(st, p);
+    st.attendance[e.id] = p === 'WO' ? 'WO' : 'Present';
+    st.assignments[e.id] = newAssignment_(p, dur);
+  });
+  return st;
+}
+
+function syncRoster_(state, roster) {
+  var changed = false;
+  if (!roster || !roster.length) return false;
+  var map = {};
+  roster.forEach(function (r) { map[lc_(r.id)] = r; });
+  state.employees = state.employees.filter(function (e) {
+    if (!map[lc_(e.id)]) {
+      delete state.attendance[e.id]; delete state.assignments[e.id]; delete state.attendanceDetail[e.id];
+      changed = true; return false;
+    }
+    return true;
+  });
+  var have = {};
+  state.employees.forEach(function (e) { have[lc_(e.id)] = e; });
+  roster.forEach(function (r) {
+    var cur = have[lc_(r.id)];
+    if (!cur) {
+      var emp = stripEmp_(r);
+      var p = plannedFor_(emp, state.dayName);
+      ensureTaskDef_(state, p);
+      state.employees.push(emp);
+      state.attendance[emp.id] = p === 'WO' ? 'WO' : 'Present';
+      state.assignments[emp.id] = newAssignment_(p, state.breakDurationSetting);
+      changed = true;
+    } else if (cur.name !== r.name || JSON.stringify(cur.plan) !== JSON.stringify(r.plan)) {
+      cur.name = r.name; cur.plan = r.plan;
+      Object.keys(r.plan).forEach(function (d) { if (ensureTaskDef_(state, r.plan[d])) changed = true; });
+      changed = true;
+    }
+  });
+  return changed;
+}
+
+function computeBreaches_(state, now) {
+  var out = [];
+  if (!isShiftActiveAt_(now) || state.dateStr !== bizInfo_(now).dateStr) return out;
+  var ms = state.minStaff || {};
+  Object.keys(ms).forEach(function (code) {
+    var n = ms[code];
+    if (!(n > 0) || state.disabledTasks[code]) return;
+    var active = 0;
+    state.employees.forEach(function (e) {
+      if (state.attendance[e.id] !== 'Present') return;
+      var a = state.assignments[e.id] || {};
+      if (a.onBreak) return;
+      if ((a.activeStation || a.task1) === code) active++;
+    });
+    if (active < n) out.push({ code: code, min: n, active: active });
+  });
+  return out;
+}
+function trackBreaches_(state, now) {
+  var changed = false;
+  var cur = computeBreaches_(state, now);
+  var curMap = {};
+  cur.forEach(function (b) { curMap[b.code] = b; });
+  var hist = state.breachHistory = state.breachHistory || [];
+  var open = {};
+  hist.forEach(function (h) { if (!h.end) open[h.code] = h; });
+  cur.forEach(function (b) {
+    if (!open[b.code]) {
+      hist.push({ code: b.code, min: b.min, active: b.active, minActive: b.active, start: now, end: null });
+      changed = true;
+      pushChat_('MIN STAFF BREACH (' + SHIFT_NAME + '): ' + b.code + ' has ' + b.active + ' active, minimum is ' + b.min);
+    } else if (b.active < open[b.code].minActive) { open[b.code].minActive = b.active; changed = true; }
+  });
+  Object.keys(open).forEach(function (code) { if (!curMap[code]) { open[code].end = now; changed = true; } });
+  return changed;
+}
+function breachKeys_(list) { return list.map(function (b) { return b.code; }).sort().join(','); }
+function openBreachKeys_(state) {
+  return (state.breachHistory || []).filter(function (h) { return !h.end; }).map(function (h) { return h.code; }).sort().join(',');
+}
+
+function needsMaintenance_(state, now) {
+  if (!state) return true;
+  var biz = bizInfo_(now);
+  if (state.dateStr !== biz.dateStr) return true;
+  if (!state.concluded && now >= shiftEndMs_(state.dateStr)) return true;
+  if (!cache_().get('RSYNC')) return true;
+  if (breachKeys_(computeBreaches_(state, now)) !== openBreachKeys_(state)) return true;
+  return false;
+}
+
+// Must be called inside the lock. Returns the (possibly new) state, saved if anything changed.
+function maintain_(now) {
+  var state = loadState_();
+  if (!needsMaintenance_(state, now)) return state;
+  var changed = false;
+  var biz = bizInfo_(now);
+  if (state && !state.concluded && now >= shiftEndMs_(state.dateStr)) { concludeShift_(state, now); changed = true; }
+  if (!state || state.dateStr !== biz.dateStr) {
+    state = createDayState_(state, biz, getRoster_());
+    changed = true;
+    cache_().put('RSYNC', '1', ROSTER_CACHE_TTL);
+  } else if (!cache_().get('RSYNC')) {
+    var roster = getRoster_();
+    if (roster && syncRoster_(state, roster)) changed = true;
+    if (refreshNsBoard_(state)) changed = true;      // keeps the leaderboard equal to the sheet (manual edits too), once a minute
+    cache_().put('RSYNC', '1', ROSTER_CACHE_TTL);
+  }
+  if (trackBreaches_(state, now)) changed = true;
+  if (changed) saveState_(state);
+  return state;
+}
+
+// ============================== VIEW (what clients receive) ==============================
+function overstayMins_(a, now) {
+  if (!a || !a.onBreak || !a.breakEndTime || now <= a.breakEndTime) return 0;
+  return Math.max(1, Math.ceil((now - a.breakEndTime) / 60000));
+}
+function eligibleForAnn_(state, ann, e) {
+  if (lc_(e.id) === lc_(ann.senderId)) return false;
+  if (state.attendance[e.id] !== 'Present') return false;
+  if (ann.target === 'ALL') return true;
+  var a = state.assignments[e.id] || {};
+  return (a.activeStation || a.task1) === ann.target;
+}
+function view_(state, now) {
+  var v = clone_(state);
+  v.overstayDone = (state.breakWorkHistory || []).filter(function (x) { return x.overtimeMins > 0; }).length;
+  v.breakMins = {}; v.breakCount = {};                            // per-person totals for the PDA scorecard (history itself stays server-side)
+  (state.breakWorkHistory || []).forEach(function (x) { v.breakMins[x.empId] = (v.breakMins[x.empId] || 0) + (x.actualMins || 0); v.breakCount[x.empId] = (v.breakCount[x.empId] || 0) + 1; });
+  delete v.breakWorkHistory; delete v.helperWorkHistory; delete v.breachHistory;
+  v.employees = v.employees.map(stripEmp_);                     // never ship passwords / emails
+  var biz = bizInfo_(now);
+  var fresh = state.dateStr === biz.dateStr;
+  v.serverNow = now;
+  // ANTI-LOGOUT FIX: always recomputed from the clock at the moment of replying, never read from storage
+  v.isShiftActive = fresh && isShiftActiveAt_(now);
+  v.shiftEndHour = SHIFT_END_HOUR;
+  v.isShiftLocked = !v.isShiftActive;
+  v.currentRealDay = state.dayName;
+  v.selectedDay = state.dayName;
+  v.currentDateStr = state.dateStr;
+  v.shiftName = SHIFT_NAME;
+  v.shiftStartMs = shiftStartMs_(state.dateStr);
+  v.shiftEndMs = shiftEndMs_(state.dateStr);
+  v.overstayBreaks = [];
+  state.employees.forEach(function (e) {
+    var a = state.assignments[e.id];
+    var m = overstayMins_(a, now);
+    if (m > 0) v.overstayBreaks.push({ empId: e.id, name: e.name, station: a.activeStation || a.task1, overtimeMins: m, scheduledMins: a.breakDurationMins, breakEndTime: a.breakEndTime });
+  });
+  v.minStaffBreaches = computeBreaches_(state, now);
+  var fls = state.employees.filter(function (e) { var a = state.assignments[e.id]; return isFL_(state, e.id) && state.attendance[e.id] === 'Present' && a && !a.onBreak; });
+  v.activeHelpRequests = (v.activeHelpRequests || []).map(function (r) {
+    r.waitMs = now - r.timestamp;
+    r.escalated = r.status === 'pending' && r.waitMs >= HELP_ESCALATE_MS;
+    r.flDist = {};
+    var best = null;
+    fls.forEach(function (f) {
+      var fa = (state.flAisle || {})[f.id];
+      var d = (fa != null && r.aisleNo != null) ? Math.abs(fa - r.aisleNo) : null;
+      r.flDist[f.id] = d;
+      if (d != null && (!best || d < best.d)) best = { id: f.id, name: f.name, d: d };
+    });
+    r.nearestFlId = best ? best.id : ''; r.nearestFlName = best ? best.name : '';
+    return r;
+  });
+  v.helpStats = state.helpStats || { raised: 0, accepted: 0, totalMs: 0, maxMs: 0, escalated: 0 };
+  v.helpEscalateMs = HELP_ESCALATE_MS;
+  v.helpReasons = HELP_REASONS;
+  v.helpLog = (state.helpLog || []).slice(-15).reverse();        // newest first: who raised / accepted / sent a helper / cleared
+  v.sheetLeaderboard = nsLeaderboard_(state);
+  delete v.nsBoard; delete v.nonSortHistory;
+  v.nonSortRequests = (state.nonSortRequests || []).slice(0, 60);
+  v.announcements = (state.announcements || []).filter(function (a) { return !a.ended; }).map(function (a) {
+    var total = 0, acked = 0;
+    state.employees.forEach(function (e) {
+      if (!eligibleForAnn_(state, a, e)) return;
+      total++;
+      if (a.acks && a.acks[e.id]) acked++;
+    });
+    var c = clone_(a); c.total = total; c.ackedCount = acked; return c;
+  });
+  bcView_(state, v, now);
+  v.noPin = noPin_();
+  return v;
+}
+
+// ============================== READ API ==============================
+function getLiveState(token) {
+  try {
+    var now = nowMs_();
+    var sess = session_(token);
+    if (!sess && !noPin_()) return { authRequired: true, code: 'AUTH' };
+    var state = loadState_();
+    if (needsMaintenance_(state, now)) {
+      try { state = withLock_(function () { return maintain_(nowMs_()); }); }
+      catch (e) { if (!state) throw e; }              // lock busy: serve the last known state, recomputed flags below
+    }
+    var v = view_(state, nowMs_());
+    v.me = sess ? { kind: sess.kind, empId: sess.empId } : { kind: 'D', empId: '' };
+    v.prodVer = prodVersion_();
+    return v;
+  } catch (err) { return { error: String(err && err.message || err) }; }
+}
+
+function readArchiveRows_() {
+  var sh = ss_().getSheetByName('Shift_Archive');
+  if (!sh) return [];
+  var n = sh.getLastRow();
+  if (n < 2) return [];
+  return sh.getRange(2, 1, n - 1, 9).getValues();
+}
+function getShiftHistory(token) {
+  try {
+    var au = checkAuth_(null, token, ['dash'], '');
+    if (!au.ok) return [];
+    var rows = readArchiveRows_();
+    var out = [];
+    for (var i = rows.length - 1; i >= 0 && out.length < 45; i--) {
+      var r = rows[i];
+      var snap = null;
+      try { snap = JSON.parse(String(r[8] || '')); } catch (e) {}
+      if (!snap) snap = { savedAt: String(r[0]), day: String(r[1]), summary: { totalStaff: r[2], presentCount: r[3], absentCount: r[4], weekoffCount: r[5], breaksTakenCount: r[6] }, roster: [] };
+      out.push(snap);
+    }
+    return out;
+  } catch (e) { return []; }
+}
+
+function getWeeklyRecord(token, days) {
+  try {
+    var au = checkAuth_(null, token, ['dash'], '');
+    if (!au.ok) return { success: false, code: au.res.code, error: au.res.error };
+    days = [7, 14, 30].indexOf(parseInt(days, 10)) >= 0 ? parseInt(days, 10) : 7;
+    var biz = bizInfo_(nowMs_());
+    var from = addDays_(biz.dateStr, -(days - 1));
+    var sh = ss_().getSheetByName('CC_Performance_Log');
+    var rows = {}, shifts = {};
+    if (sh && sh.getLastRow() > 1) {
+      var vals = sh.getRange(2, 1, sh.getLastRow() - 1, 12).getValues();
+      vals.forEach(function (r) {
+        var ds = r[0] instanceof Date ? fmt_(r[0].getTime(), 'yyyy-MM-dd') : String(r[0]).substr(0, 10);
+        if (!ds || ds < from) return;
+        shifts[ds] = true;
+        var id = String(r[2]);
+        var o = rows[id] || (rows[id] = { id: id, name: String(r[3]), daysOnDuty: 0, absent: 0, lateCount: 0, lateMins: 0, earlyOuts: 0, helperMins: 0, helperSessions: 0, breakMins: 0, overstayMins: 0, overstayCount: 0 });
+        o.name = String(r[3]);
+        var st = String(r[4]);
+        if (st === 'Present' || st === 'EO') o.daysOnDuty++;
+        if (st === 'AB' || st === 'LV') o.absent++;
+        var lm = Number(r[5]) || 0;
+        if (lm > 0) { o.lateCount++; o.lateMins += lm; }
+        if (String(r[6] || '').trim()) o.earlyOuts++;
+        o.helperMins += Number(r[7]) || 0;
+        o.helperSessions += Number(r[8]) || 0;
+        o.breakMins += Number(r[9]) || 0;
+        o.overstayMins += Number(r[10]) || 0;
+        o.overstayCount += Number(r[11]) || 0;
+      });
+    }
+    var list = Object.keys(rows).map(function (k) { return rows[k]; }).sort(function (a, b) { return a.name.localeCompare(b.name); });
+    return { success: true, rows: list, days: days, from: from, shiftCount: Object.keys(shifts).length };
+  } catch (e) { return { success: false, error: String(e && e.message || e) }; }
+}
+
+function getAttendanceTrend(token, days) {
+  try {
+    var au = checkAuth_(null, token, ['dash'], '');
+    if (!au.ok) return { success: false, code: au.res.code, error: au.res.error };
+    days = [7, 14, 30].indexOf(parseInt(days, 10)) >= 0 ? parseInt(days, 10) : 7;
+    var biz = bizInfo_(nowMs_());
+    var from = addDays_(biz.dateStr, -(days - 1));
+    var sh = ss_().getSheetByName('CC_Performance_Log');
+    var byDate = {};
+    if (sh && sh.getLastRow() > 1) {
+      sh.getRange(2, 1, sh.getLastRow() - 1, 12).getValues().forEach(function (r) {
+        var ds = r[0] instanceof Date ? fmt_(r[0].getTime(), 'yyyy-MM-dd') : String(r[0]).substr(0, 10);
+        if (!ds || ds < from) return;
+        var o = byDate[ds] || (byDate[ds] = { date: ds, present: 0, absent: 0, late: 0, earlyOut: 0, weekOff: 0 });
+        var st = String(r[4]);
+        if (st === 'Present' || st === 'EO') o.present++;
+        else if (st === 'AB' || st === 'LV') o.absent++;
+        else if (st === 'WO') o.weekOff++;
+        if (Number(r[5]) > 0) o.late++;
+        if (String(r[6] || '').trim()) o.earlyOut++;
+      });
+    }
+    var list = Object.keys(byDate).sort().map(function (k) { return byDate[k]; });
+    return { success: true, days: days, rows: list };
+  } catch (e) { return { success: false, error: String(e && e.message || e) }; }
+}
+
+// ---------- yesterday's productivity (from the productivity export sheet) ----------
+function prodDateKey_(v) {
+  if (v instanceof Date) return fmt_(v.getTime(), 'yyyy-MM-dd');
+  var t = String(v == null ? '' : v).trim();
+  var m = t.match(/^(\d{1,2})-([A-Za-z]{3})[a-z]*-(\d{2,4})$/);
+  if (m) {
+    var mi = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'].indexOf(m[2].toLowerCase());
+    if (mi < 0) return '';
+    var yr = m[3].length === 2 ? 2000 + parseInt(m[3], 10) : parseInt(m[3], 10);
+    return yr + '-' + pad2_(mi + 1) + '-' + pad2_(parseInt(m[1], 10));
+  }
+  m = t.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  return m ? m[0] : '';
+}
+var PROD_SHIFT_CODE = 'A';             // rows whose `shift` column is this letter (or whose id is in the roster) count as "my shift"
+function validDate_(d) { return /^\d{4}-\d{2}-\d{2}$/.test(String(d || '')); }
+// ---- targets (units per active hour). Keys are normalised: lower-case, '_' / '-' -> space.
+var PROD_EXCLUDE = { 'consolidation': 1 };   // task types that are not counted anywhere in productivity
+var PROD_TARGETS = { 'stock take': 180, 'forward transfer': 120, 'reverse transfer': 60, 'back transfer': 60, 'outbound picking': 30 };
+function prodNorm_(t) { return String(t || '').toLowerCase().replace(/[_\-\s]+/g, ' ').trim(); }
+function prodTarget_(t) { var k = prodNorm_(t); return PROD_TARGETS.hasOwnProperty(k) ? PROD_TARGETS[k] : 0; }
+
+// cheap "did the sheet change?" probe: row count + newest posted date. Cached 25 s so every poll can carry it.
+function prodVersion_() {
+  var ck = 'PRODV';
+  try { var hit = cache_().get(ck); if (hit) return JSON.parse(hit); } catch (e) {}
+  var o = { rows: 0, latest: '', sig: 0, v: '0:0' };
+  try {
+    var sh = SpreadsheetApp.openById(PRODUCTIVITY_SHEET_ID).getSheetByName(PRODUCTIVITY_TAB);
+    var last = sh ? sh.getLastRow() : 0;
+    o.rows = last;
+    if (last > 1) {
+      var n = Math.min(80, last - 1);
+      var sg = 0;
+      sh.getRange(last - n + 1, 5, n, 3).getValues().forEach(function (r) {
+        var k = prodDateKey_(r[0]); if (k && k > o.latest) o.latest = k;
+        var q = Number(r[2]); if (isFinite(q)) sg += q;          // qty of the newest rows: catches edits that do not change the row count
+      });
+      o.sig = Math.round(sg * 100) / 100;
+    }
+    o.v = o.rows + ':' + o.sig;
+  } catch (e) {}
+  try { cache_().put(ck, JSON.stringify(o), 10); } catch (e) {}
+  return o;
+}
+
+// one pass over the export for the missing dates: date -> user -> task type -> hour -> qty
+function buildProdDays_(dates) {
+  var pv = prodVersion_(), ver = pv.v, out = {}, miss = [];
+  function keyOf(d) { return 'PRODF2_' + d + '_' + ver; }   // any change in the sheet (even a back-filled older day) rebuilds - but only the needed rows are read
+  dates.forEach(function (d) {
+    if (out[d]) return;
+    try { var hit = cache_().get(keyOf(d)); if (hit) { out[d] = JSON.parse(hit); return; } } catch (e) {}
+    out[d] = {}; miss.push(d);
+  });
+  if (miss.length) {
+    var sh = SpreadsheetApp.openById(PRODUCTIVITY_SHEET_ID).getSheetByName(PRODUCTIVITY_TAB);
+    if (sh && sh.getLastRow() > 1) {
+      var last = sh.getLastRow();
+      // 1 cheap column read -> where the wanted days sit; then read ONLY that block of rows
+      var dc = sh.getRange(2, 5, last - 1, 1).getValues(), lo = -1, hi = -1;
+      for (var q = 0; q < dc.length; q++) {
+        if (miss.indexOf(prodDateKey_(dc[q][0])) >= 0) { if (lo < 0) lo = q; hi = q; }
+      }
+      var vals = lo < 0 ? [] : sh.getRange(2 + lo, 1, hi - lo + 1, 10).getValues();
+      for (var i = 0; i < vals.length; i++) {
+        var r = vals[i];
+        var dk = prodDateKey_(r[4]);
+        if (miss.indexOf(dk) < 0) continue;
+        var day = out[dk];
+        var qty = Number(r[6]); if (!isFinite(qty)) qty = 0;
+        var users = {};
+        users[lc_(r[2])] = 1;                                     // pick_user (PDA login id)
+        if (r[3] && lc_(r[3]) !== lc_(r[2])) users[lc_(r[3])] = 1;   // put_user when different
+        var ty = String(r[1] || 'other');
+        if (PROD_EXCLUDE[prodNorm_(ty)]) continue;
+        var h = parseInt(r[5], 10);
+        Object.keys(users).forEach(function (u) {
+          if (!u) return;
+          var o = day[u] || (day[u] = { name: String(r[7] || ''), shift: String(r[9] || ''), total: 0, types: {} });
+          o.total += qty;
+          var t = o.types[ty] || (o.types[ty] = { qty: 0, hours: {} });
+          t.qty += qty;
+          if (isFinite(h)) t.hours[h] = (t.hours[h] || 0) + qty;
+        });
+      }
+    }
+    miss.forEach(function (d) { try { var js = JSON.stringify(out[d]); if (js.length < 95000) cache_().put(keyOf(d), js, 3 * 3600); } catch (e) {} });
+  }
+  return out;
+}
+function buildProdFull_(dateStr) { return buildProdDays_([dateStr])[dateStr] || {}; }
+function round1_(n) { return Math.round(n * 10) / 10; }
+function round2_(n) { return Math.round(n * 100) / 100; }
+function prodPerson_(uid, u, nameOverride) {
+  var byHour = {}, types = [], num = 0, hT = {};
+  Object.keys(u.types).forEach(function (t) {
+    var ty = u.types[t], hs = Object.keys(ty.hours).map(Number), tg = prodTarget_(t);
+    var tph = hs.length ? round1_(ty.qty / hs.length) : 0;
+    types.push({ type: t, qty: ty.qty, hours: hs.length, tph: tph, target: tg, ok: tg ? tph >= tg : null });
+    if (tg) { num += ty.qty / tg; hs.forEach(function (h) { hT[h] = 1; }); }
+    hs.forEach(function (h) { var x = byHour[h] || (byHour[h] = { h: h, qty: 0, by: {} }); x.qty += ty.hours[h]; x.by[t] = (x.by[t] || 0) + ty.hours[h]; });
+  });
+  var perHour = Object.keys(byHour).map(Number).sort(function (a, b) { return a - b; }).map(function (h) { return byHour[h]; });
+  types.sort(function (a, b) { return b.qty - a.qty; });
+  var gaps = [];
+  if (perHour.length > 1) { for (var h = perHour[0].h + 1; h < perHour[perHour.length - 1].h; h++) { if (!byHour[h]) gaps.push(h); } }
+  var nT = Object.keys(hT).length, ach = nT ? round2_(num / nT) : null;
+  return { id: uid, name: nameOverride || u.name || uid, total: u.total, hours: perHour.length, tph: perHour.length ? round1_(u.total / perHour.length) : 0, types: types, perHour: perHour,
+    gaps: gaps, ach: ach, ok: ach == null ? null : ach >= 1 };
+}
+// break / late facts for a date, from the archived shift log (CC_Performance_Log)
+function prodBreaks_(dateStr) {
+  var ck = 'PRODBRK_' + dateStr;
+  try { var hit = cache_().get(ck); if (hit) return JSON.parse(hit); } catch (e) {}
+  var out = {};
+  try {
+    var sh = ss_().getSheetByName('CC_Performance_Log');
+    if (sh && sh.getLastRow() > 1) {
+      sh.getRange(2, 1, sh.getLastRow() - 1, 12).getValues().forEach(function (r) {
+        var ds = r[0] instanceof Date ? fmt_(r[0].getTime(), 'yyyy-MM-dd') : String(r[0]).substr(0, 10);
+        if (ds !== dateStr) return;
+        out[lc_(r[2])] = { att: String(r[4] || ''), lateMins: Number(r[5]) || 0, breakMins: Number(r[9]) || 0, overstayMins: Number(r[10]) || 0, helperMins: Number(r[7]) || 0 };
+      });
+    }
+  } catch (e) {}
+  try { cache_().put(ck, JSON.stringify(out), 600); } catch (e) {}
+  return out;
+}
+function prodReport_(dateStr, allShifts) {
+  var users = buildProdFull_(dateStr);
+  var rs = {}; (getRoster_() || []).forEach(function (e) { rs[lc_(e.id)] = e.name; });
+  var brk = prodBreaks_(dateStr);
+  var people = [], tasks = {};
+  Object.keys(users).forEach(function (uid) {
+    var u = users[uid];
+    if (!allShifts && !(rs[uid] || String(u.shift).toUpperCase() === PROD_SHIFT_CODE)) return;
+    var pp = prodPerson_(uid, u, rs[uid]);
+    if (brk[uid]) pp.brk = brk[uid];
+    people.push(pp);
+    pp.types.forEach(function (ty) {
+      (tasks[ty.type] || (tasks[ty.type] = [])).push({ id: uid, name: pp.name, qty: ty.qty, hours: ty.hours, tph: ty.tph, target: ty.target, ok: ty.ok,
+        perHour: pp.perHour.filter(function (x) { return x.by[ty.type]; }).map(function (x) { return { h: x.h, qty: x.by[ty.type] }; }) });
+    });
+  });
+  people.sort(function (a, b) { return b.total - a.total; });
+  var list = Object.keys(tasks).map(function (t) {
+    var arr = tasks[t], total = 0, onT = 0; arr.forEach(function (x) { total += x.qty; if (x.ok) onT++; });
+    var byQty = arr.slice().sort(function (a, b) { return b.qty - a.qty; });
+    var byTph = arr.filter(function (x) { return x.hours >= 2; }).sort(function (a, b) { return b.tph - a.tph; });
+    return { type: t, total: total, people: arr.length, target: prodTarget_(t), onTarget: onT, topQty: byQty.slice(0, 5), topTph: byTph.slice(0, 5), all: byQty };
+  }).sort(function (a, b) { return b.total - a.total; });
+  var pv = prodVersion_();
+  return { success: true, date: dateStr, allShifts: !!allShifts, found: people.length > 0, people: people, tasks: list, ver: pv.v, latest: pv.latest };
+}
+function prodDate_(d) {
+  var y = addDays_(bizInfo_(nowMs_()).dateStr, -1);
+  return validDate_(d) ? String(d) : y;
+}
+// dashboard + PDA: team report for a date (default yesterday)
+function getProductivityReport(tok, dateStr, allShifts) {
+  try {
+    var au = checkAuth_(null, tok, ['any', 'dash']);
+    if (!au.ok) return { success: false, code: au.res.code, error: au.res.error };
+    var d = prodDate_(dateStr), ck = 'PRODR_' + d + '_' + (allShifts ? 1 : 0) + '_' + prodVersion_().v, hit = null;
+    try { hit = cache_().get(ck); } catch (e) {}
+    if (hit) return JSON.parse(hit);                       // same sheet version: serve the finished report (60 s) - opens instantly
+    var rep = prodReport_(d, !!allShifts);
+    try { var js = JSON.stringify(rep); if (js.length < 95000) cache_().put(ck, js, 60); } catch (e) {}
+    return rep;
+  } catch (e) { return { success: false, error: 'Could not read the productivity sheet: ' + String(e && e.message || e) }; }
+}
+// weekly / monthly leaderboard: the `days` days ending on endDate
+function getProductivityBoard(tok, endDate, days, allShifts) {
+  try {
+    var au = checkAuth_(null, tok, ['any', 'dash']);
+    if (!au.ok) return { success: false, code: au.res.code, error: au.res.error };
+    days = parseInt(days, 10) === 30 ? 30 : 7;
+    var end = prodDate_(endDate), dates = [];
+    for (var i = days - 1; i >= 0; i--) dates.push(addDays_(end, -i));
+    var all = buildProdDays_(dates);
+    var rs = {}; (getRoster_() || []).forEach(function (e) { rs[lc_(e.id)] = e.name; });
+    var acc = {};
+    dates.forEach(function (d) {
+      var day = all[d] || {};
+      Object.keys(day).forEach(function (uid) {
+        var u = day[uid];
+        if (!allShifts && !(rs[uid] || String(u.shift).toUpperCase() === PROD_SHIFT_CODE)) return;
+        var pp = prodPerson_(uid, u, rs[uid]);
+        var a = acc[uid] || (acc[uid] = { id: uid, name: pp.name, total: 0, hours: 0, days: 0, num: 0, hT: 0, okDays: 0 });
+        a.total += pp.total; a.hours += pp.hours; a.days++;
+        if (pp.ach != null) {
+          var nT = 0; pp.types.forEach(function (ty) { if (ty.target) nT += 0; });
+          // re-derive the attainment numerator / target-hours so weeks add up correctly
+          var num = 0, hs = {};
+          Object.keys(u.types).forEach(function (t) { var tg = prodTarget_(t); if (!tg) return; num += u.types[t].qty / tg; Object.keys(u.types[t].hours).forEach(function (h) { hs[h] = 1; }); });
+          a.num += num; a.hT += Object.keys(hs).length; if (pp.ok) a.okDays++;
+        }
+      });
+    });
+    var people = Object.keys(acc).map(function (k) {
+      var a = acc[k];
+      return { id: a.id, name: a.name, total: a.total, hours: a.hours, days: a.days, tph: a.hours ? round1_(a.total / a.hours) : 0, ach: a.hT ? round2_(a.num / a.hT) : null, okDays: a.okDays };
+    });
+    var byQty = people.slice().sort(function (a, b) { return b.total - a.total; });
+    var byAch = people.filter(function (p) { return p.ach != null && p.hours >= 4; }).sort(function (a, b) { return b.ach - a.ach; });
+    return { success: true, days: days, from: dates[0], to: end, allShifts: !!allShifts, people: people.length, topQty: byQty.slice(0, 10), topAch: byAch.slice(0, 10), all: byQty };
+  } catch (e) { return { success: false, error: 'Could not read the productivity sheet: ' + String(e && e.message || e) }; }
+}
+function pdaGetProductivity(tok, empId, dateStr) {
+  try {
+    var au = checkAuth_(null, tok, ['self', 'dash'], empId);
+    if (!au.ok) return { success: false, code: au.res.code, error: au.res.error };
+    var d = prodDate_(dateStr), id = lc_(empId);
+    var dates = []; for (var i = 6; i >= 0; i--) dates.push(addDays_(d, -i));
+    var all = buildProdDays_(dates);
+    var u = (all[d] || {})[id] || null;
+    var types = {}, hours = [], info = [], pp = null;
+    if (u) {
+      pp = prodPerson_(id, u);
+      pp.types.forEach(function (t) { types[t.type] = t.qty; info.push(t); });
+      pp.perHour.forEach(function (x) { hours.push({ h: x.h, qty: x.qty }); });
+    }
+    var trend = dates.map(function (dd) {
+      var x = (all[dd] || {})[id]; if (!x) return { date: dd, total: 0, hours: 0, tph: 0, ach: null };
+      var p = prodPerson_(id, x); return { date: dd, total: p.total, hours: p.hours, tph: p.tph, ach: p.ach };
+    });
+    var vs = null;
+    if (u) { for (var j = trend.length - 2; j >= 0; j--) { if (trend[j].hours > 0) { var cur = trend[trend.length - 1].tph, pv = trend[j].tph; vs = { prevDate: trend[j].date, prevTph: pv, curTph: cur, deltaPct: pv ? Math.round((cur - pv) / pv * 100) : 0 }; break; } } }
+    return { success: true, date: d, found: !!u, total: u ? u.total : 0, types: types, typeInfo: info, hours: hours, hoursN: pp ? pp.hours : 0, tph: pp ? pp.tph : 0, ach: pp ? pp.ach : null, ok: pp ? pp.ok : null,
+      gaps: pp ? pp.gaps : [], trend: trend, vsPrev: vs, ver: prodVersion_().v };
+  } catch (e) { return { success: false, error: 'Could not read the productivity sheet: ' + String(e && e.message || e) }; }
+}
+
+// ============================== PDA DEVICES (who holds which handheld) ==============================
+function parseLogTs_(v) {
+  if (v instanceof Date) return v.getTime();
+  var m = String(v || '').trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})[ T](\d{1,2}):(\d{2})(?::(\d{2}))?/);
+  if (!m) return 0;
+  return Date.UTC(+m[3], +m[1] - 1, +m[2], +m[4], +m[5], +(m[6] || 0)) - SHEET_UTC_OFFSET_H * 3600000;
+}
+// walk the log in order: an ISSUED row makes the CC the holder of that barcode, a RETURNED row frees it
+function buildPdaHolders_() {
+  var ck = 'PDAHOLD';
+  try { var hit = cache_().get(ck); if (hit) return JSON.parse(hit); } catch (e) {}
+  var sh = SpreadsheetApp.openById(PDA_LOG_SHEET_ID).getSheetByName(PDA_LOG_TAB);
+  var holders = {};
+  if (sh && sh.getLastRow() > 1) {
+    var last = sh.getLastRow(), start = Math.max(2, last - PDA_LOG_ROWS + 1);
+    var vals = sh.getRange(start, 1, last - start + 1, 6).getValues();
+    for (var i = 0; i < vals.length; i++) {
+      var r = vals[i], bc = String(r[4] || '').trim().toUpperCase(), act = String(r[5] || '').trim().toUpperCase();
+      if (!bc) continue;
+      if (act.indexOf('ISSUED') === 0) holders[bc] = { cc: lc_(r[1]), name: String(r[2] || ''), ts: parseLogTs_(r[0]), second: act.indexOf('2ND') >= 0, swap: act.indexOf('SWAP') >= 0 };
+      else if (act.indexOf('RETURNED') === 0) delete holders[bc];
+    }
+  }
+  try { cache_().put(ck, JSON.stringify(holders), 45); } catch (e) {}
+  return holders;
+}
+function pdaGetMyDevices(tok, empId) {
+  try {
+    var au = checkAuth_(null, tok, ['self', 'dash'], empId);
+    if (!au.ok) return { success: false, code: au.res.code, error: au.res.error };
+    var roster = getRoster_() || [], me = null;
+    roster.forEach(function (e) { if (lc_(e.id) === lc_(empId)) me = e; });
+    var codes = {}; codes[lc_(empId)] = 1; if (me && me.password) codes[lc_(me.password)] = 1;
+    var holders = buildPdaHolders_(), now = nowMs_(), out = [];
+    Object.keys(holders).forEach(function (bc) {
+      var h = holders[bc];
+      if (!codes[h.cc]) return;
+      out.push({ barcode: bc, since: h.ts, sinceStr: h.ts ? Utilities.formatDate(new Date(h.ts), TZ, 'dd/MM HH:mm') : '', mins: h.ts ? Math.max(0, Math.round((now - h.ts) / 60000)) : 0, second: h.second, swap: h.swap });
+    });
+    out.sort(function (a, b) { return a.since - b.since; });
+    return { success: true, devices: out };
+  } catch (e) { return { success: false, error: 'Could not read the PDA log sheet: ' + String(e && e.message || e) }; }
+}
+
+// ============================== MUTATION WRAPPER ==============================
+function mutate_(token, roles, selfId, opts, fn) {
+  try {
+    return withLock_(function () {
+      var now = nowMs_();
+      var state = maintain_(now);
+      var au = checkAuth_(state, token, roles, selfId);
+      if (!au.ok) return au.res;
+      if (opts && opts.shift && !(state.dateStr === bizInfo_(now).dateStr && isShiftActiveAt_(now))) {
+        return { success: false, code: 'CLOSED', error: 'Shift is closed (active ' + shiftLabel_() + '). View only.' };
+      }
+      var r = fn(state, au.sess, now) || {};
+      if (r.success === false) return r;
+      state.lastUpdated = now;
+      saveState_(state);
+      var out = { success: true, state: view_(state, nowMs_()) };
+      Object.keys(r).forEach(function (k) { if (k !== 'success') out[k] = r[k]; });
+      return out;
+    });
+  } catch (err) { return { success: false, error: String(err && err.message || err) }; }
+}
+function err_(msg) { return { success: false, error: msg }; }
+
+// ============================== DOMAIN OPERATIONS (all run inside the lock) ==============================
+function stationOf_(a) { return (a && (a.activeStation || a.task1)) || 'Floor'; }
+
+function closeHelper_(state, e, now, endMs) {
+  var a = state.assignments[e.id];
+  if (!a || !a.isHelping) return 0;
+  var end = endMs || now;
+  var start = a.helperStartTime || end;
+  var mins = Math.max(0, Math.round((end - start) / 60000));
+  state.helperWorkHistory.push({
+    id: 'hlp-' + end + '-' + rid_(), empId: e.id, empName: e.name, from: a.originalStation, to: a.activeStation,
+    startTime: start, endTime: end, mins: mins, startStr: fmt_(start, 'HH:mm'), endStr: fmt_(end, 'HH:mm')
+  });
+  a.activeStation = a.originalStation; a.task2 = 'None'; a.isHelping = false; a.helperStartTime = null; a.helperStartTimeStr = null;
+  return mins;
+}
+function closeBreak_(state, e, now, auto, endMs) {
+  var a = state.assignments[e.id];
+  if (!a || !a.onBreak) return 0;
+  var end = endMs || now;
+  var start = a.breakStartTime || end;
+  var sched = a.breakDurationMins || state.breakDurationSetting || 50;
+  var actual = Math.max(1, Math.round((end - start) / 60000));
+  var over = (a.breakEndTime && end > a.breakEndTime) ? Math.max(1, Math.ceil((end - a.breakEndTime) / 60000)) : 0;
+  state.breakWorkHistory.push({
+    id: 'brk-' + end + '-' + rid_(), empId: e.id, empName: e.name, station: stationOf_(a),
+    startTime: start, endTime: end, startTimeStr: fmt_(start, 'hh:mm a'), endTimeStr: fmt_(end, 'hh:mm a'),
+    scheduledMins: sched, actualMins: actual, overtimeMins: over, auto: !!auto
+  });
+  a.onBreak = false; a.breakStatus = 'completed'; a.breakStartTime = null; a.breakEndTime = null;
+  return over;
+}
+function setMove_(a, text, now) { a.moveNote = { id: 'mv-' + now + '-' + rid_(), text: text, ts: now }; }
+
+// who did this? (dashboard open mode / PIN session = Supervisor, otherwise the logged-in person with their role)
+function actor_(state, sess) {
+  if (!sess || sess.kind === 'D') return { id: '', name: 'Supervisor', role: 'Dashboard' };
+  var e = empById_(state, sess.empId) || { id: sess.empId, name: sess.empId };
+  return { id: e.id, name: e.name, role: isTL_(state, e.id) ? 'TL' : (isFL_(state, e.id) ? 'FL' : 'CC') };
+}
+function logHelp_(state, type, req, who, now, extra) {
+  var log = state.helpLog = state.helpLog || [];
+  var o = { id: 'hl-' + now + '-' + rid_(), type: type, helpId: req.id, empId: req.empId, empName: req.empName, location: req.location, station: req.station,
+    by: who.name, byRole: who.role, ts: now, timeStr: fmt_(now, 'hh:mm a') };
+  if (extra) Object.keys(extra).forEach(function (k) { o[k] = extra[k]; });
+  log.push(o);
+  while (log.length > 40) log.shift();
+}
+
+function ensureHelpStats_(state) { return state.helpStats = state.helpStats || { raised: 0, accepted: 0, totalMs: 0, maxMs: 0, escalated: 0 }; }
+function aisleNo_(loc) { var m = String(loc || '').match(/\d+/); return m ? parseInt(m[0], 10) : null; }
+function recordHelpAccept_(state, req, now) {          // first accept only: response time stats
+  if (req.respMs != null) return;
+  var hs = state.helpStats = state.helpStats || { raised: 0, accepted: 0, totalMs: 0, maxMs: 0, escalated: 0 };
+  req.respMs = Math.max(0, now - req.timestamp);
+  hs.accepted++; hs.totalMs += req.respMs; hs.maxMs = Math.max(hs.maxMs, req.respMs);
+  if (req.respMs >= HELP_ESCALATE_MS) { hs.escalated++; req.wasEscalated = true; }
+}
+function rememberFlAisle_(state, flId, req) {            // where an FL was last working = used to pick the nearest FL
+  var n = aisleNo_(req.location);
+  if (flId && n != null) { state.flAisle = state.flAisle || {}; state.flAisle[flId] = n; }
+}
+function newHelp_(state, e, location, now, reason, imageId) {
+  var a = state.assignments[e.id] || {};
+  var req = {
+    id: 'help-' + now + '-' + rid_(), empId: e.id, empName: e.name, station: stationOf_(a), location: String(location || '').substr(0, 40),
+    status: 'pending', acceptedBy: '', acceptedById: '', helperId: '', helperName: '', timeStr: fmt_(now, 'hh:mm a'), timestamp: now,
+    reason: HELP_REASONS.indexOf(reason) >= 0 ? reason : '', aisleNo: aisleNo_(location),
+    imageId: '', imageUrl: ''
+  };
+  if (/^[A-Za-z0-9_-]{10,100}$/.test(String(imageId || ''))) { req.imageId = String(imageId); req.imageUrl = bcImageUrl_(String(imageId)); }
+  var hs = state.helpStats = state.helpStats || { raised: 0, accepted: 0, totalMs: 0, maxMs: 0, escalated: 0 };
+  hs.raised++;
+  state.helpCount = state.helpCount || {}; state.helpCount[e.id] = (state.helpCount[e.id] || 0) + 1;
+  state.activeHelpRequests = (state.activeHelpRequests || []).filter(function (r) { return lc_(r.empId) !== lc_(e.id); });
+  state.activeHelpRequests.unshift(req);
+  logHelp_(state, 'raised', req, { id: e.id, name: e.name, role: 'CC' }, now, { reason: req.reason, imageUrl: req.imageUrl });
+  return req;
+}
+
+function startBreak_(state, e, now) {
+  var a = state.assignments[e.id];
+  if (state.attendance[e.id] !== 'Present') return err_(e.name + ' is not on duty.');
+  if (a.onBreak) return err_('Break already running.');
+  if (a.breakStatus === 'completed') return err_('Break already completed for this shift.');
+  var dur = state.breakDurationSetting || 50;     // supervisor setting is always the standard
+  a.onBreak = true; a.breakStatus = 'active'; a.breakStartTime = now; a.breakEndTime = now + dur * 60000; a.breakDurationMins = dur;
+  return {};
+}
+function endBreak_(state, e, now) {
+  var a = state.assignments[e.id];
+  if (!a || !a.onBreak) return err_('Not on a break.');
+  var over = closeBreak_(state, e, now, false);
+  return { overtimeMins: over };
+}
+function undoBreak_(state, e) {
+  var a = state.assignments[e.id];
+  if (!a) return err_('Not found.');
+  if (!a.onBreak && a.breakStatus !== 'completed') return err_('Nothing to undo.');
+  if (a.breakStatus === 'completed') {
+    for (var i = state.breakWorkHistory.length - 1; i >= 0; i--) {
+      if (lc_(state.breakWorkHistory[i].empId) === lc_(e.id)) { state.breakWorkHistory.splice(i, 1); break; }
+    }
+  }
+  a.onBreak = false; a.breakStatus = 'pending'; a.breakStartTime = null; a.breakEndTime = null;
+  return {};
+}
+function deployHelper_(state, e, target, now) {
+  var a = state.assignments[e.id];
+  target = String(target || '').toUpperCase();
+  if (!state.taskDefinitions[target]) return err_('Unknown workstation ' + target);
+  if (state.attendance[e.id] !== 'Present') return err_(e.name + ' is not on duty.');
+  if (a.isHelping) closeHelper_(state, e, now);
+  var base = a.originalStation && a.originalStation !== 'None' ? a.originalStation : a.task1;
+  if (target === base) return err_('That is already their own line.');
+  a.originalStation = base; a.task2 = target; a.activeStation = target; a.isHelping = true;
+  a.helperStartTime = now; a.helperStartTimeStr = fmt_(now, 'hh:mm a');
+  setMove_(a, 'You are deployed as helper to ' + target + ' (' + (state.taskDefinitions[target].name || target) + ')', now);
+  return {};
+}
+function revertHelper_(state, e, now) {
+  var a = state.assignments[e.id];
+  if (!a || !a.isHelping) return err_('Not deployed as helper.');
+  var mins = closeHelper_(state, e, now);
+  setMove_(a, 'Helper duty ended. Return to ' + a.activeStation, now);
+  return { durationFormatted: fmtDuration_(mins), durationMins: mins };
+}
+function swapLine_(state, e, target, now) {
+  var a = state.assignments[e.id];
+  target = String(target || '').toUpperCase();
+  if (!state.taskDefinitions[target]) return err_('Unknown workstation ' + target);
+  if (state.attendance[e.id] !== 'Present') return err_(e.name + ' is not on duty.');
+  if (a.isHelping) closeHelper_(state, e, now);
+  var planned = plannedFor_(e, state.dayName);
+  a.task1 = target; a.activeStation = target; a.originalStation = target; a.task2 = 'None';
+  a.swappedFrom = target !== planned ? planned : '';
+  a.coveringFor = target !== planned ? target : '';
+  setMove_(a, 'You were reassigned to ' + target + ' (' + (state.taskDefinitions[target].name || target) + ')', now);
+  return {};
+}
+function takeOffLine_(state, e, now) {
+  var a = state.assignments[e.id];
+  if (a.isHelping) closeHelper_(state, e, now);
+  if (a.onBreak) closeBreak_(state, e, now, false);
+  a.task1 = 'None'; a.task2 = 'None'; a.activeStation = 'None'; a.originalStation = 'None'; a.isHelping = false;
+  a.coveringFor = ''; a.swappedFrom = '';
+}
+function putBackOnLine_(state, e) {
+  var a = state.assignments[e.id];
+  var p = plannedFor_(e, state.dayName);
+  var base = p !== 'WO' ? p : 'PK';
+  ensureTaskDef_(state, base);
+  a.task1 = base; a.task2 = 'None'; a.activeStation = base; a.originalStation = base; a.isHelping = false;
+}
+function setAttendance_(state, empId, kind, time, by, now) {
+  var e = empById_(state, empId);
+  if (!e) return err_('Employee not found.');
+  var a = state.assignments[e.id] || (state.assignments[e.id] = newAssignment_(plannedFor_(e, state.dayName), state.breakDurationSetting));
+  var cur = state.attendance[e.id] || 'Present';
+  var offStates = { AB: 1, LV: 1, WO: 1, EO: 1 };
+  if (kind === 'AB' || kind === 'LV' || kind === 'WO') {
+    takeOffLine_(state, e, now);
+    state.attendance[e.id] = kind;
+    delete state.attendanceDetail[e.id];
+  } else if (kind === 'Present') {
+    if (offStates[cur]) putBackOnLine_(state, e);
+    state.attendance[e.id] = 'Present';
+    delete state.attendanceDetail[e.id];
+  } else if (kind === 'late') {
+    var t = normTime_(time);
+    if (!t) return err_('Enter a valid time (HH:MM).');
+    if (offStates[cur]) putBackOnLine_(state, e);
+    state.attendance[e.id] = 'Present';
+    state.attendanceDetail[e.id] = { late: { time: t, mins: lateMins_(t), by: by } };
+  } else if (kind === 'early') {
+    var t2 = normTime_(time);
+    if (!t2) return err_('Enter a valid time (HH:MM).');
+    var det = state.attendanceDetail[e.id] || {};
+    a.leftFrom = stationOf_(a);
+    takeOffLine_(state, e, now);
+    state.attendance[e.id] = 'EO';
+    det.left = { time: t2, by: by };
+    state.attendanceDetail[e.id] = det;
+  } else return err_('Unknown attendance action.');
+  return {};
+}
+function markAllPresent_(state, by, now) {
+  var n = 0;
+  state.employees.forEach(function (e) {
+    var st = state.attendance[e.id];
+    if (st === 'AB' || st === 'LV') { setAttendance_(state, e.id, 'Present', '', by, now); n++; }
+  });
+  return { changed: n };
+}
+function addAnnouncement_(state, target, message, senderName, senderId, now) {
+  message = String(message || '').trim().substr(0, 240);
+  if (!message) return err_('Write a message first.');
+  target = String(target || 'ALL').toUpperCase();
+  if (target !== 'ALL' && !state.taskDefinitions[target]) return err_('Unknown line ' + target);
+  var ann = { id: 'ann-' + now + '-' + rid_(), target: target, message: message, sender: senderName || 'Supervisor', senderId: senderId || '', ts: now, timeStr: fmt_(now, 'hh:mm a'), acks: {}, ended: false };
+  state.announcements = (state.announcements || []).filter(function (a) { return !a.ended; }).slice(0, 19);
+  state.announcements.unshift(ann);
+  return { announcementId: ann.id };
+}
+function addSummon_(state, e, message, tlName, now) {
+  var s = {
+    id: 'smn-' + now + '-' + rid_(), targetId: e.id, targetName: e.name, tlName: tlName || 'Supervisor',
+    message: String(message || 'Please report to the TL desk immediately.').substr(0, 120), timeStr: fmt_(now, 'hh:mm a'), timestamp: now
+  };
+  state.activeSummons = (state.activeSummons || []).filter(function (x) { return lc_(x.targetId) !== lc_(e.id); });
+  state.activeSummons.unshift(s);
+  return {};
+}
+
+// ============================== DASHBOARD COMMANDS ==============================
+function dashAction(token, op, payload) { return dashAction_(token, op, payload, ['dash']); }
+function dashAction_(token, op, payload, roles) {
+  payload = payload || {};
+  var needShift = { breakStart: 1, helperDeploy: 1, swap: 1, swapMany: 1, ring: 1, announce: 1 };
+  return mutate_(token, roles, '', { shift: !!needShift[op] }, function (state, sess, now) {
+    var meE = sess.kind === 'P' ? empById_(state, sess.empId) : null, by = meE ? meE.name : 'Supervisor';
+    var e = null;
+    if (payload.empId != null && payload.empId !== '') {
+      e = empById_(state, payload.empId);
+      if (!e) return err_('Employee not found.');
+    }
+    switch (op) {
+      case 'breakStart': return startBreak_(state, e, now);
+      case 'breakEnd': return endBreak_(state, e, now);
+      case 'breakUndo': return undoBreak_(state, e);
+      case 'helperDeploy': return deployHelper_(state, e, payload.target, now);
+      case 'helperRevert': return revertHelper_(state, e, now);
+      case 'swap': return swapLine_(state, e, payload.target, now);
+      case 'swapMany':
+        var ids = (payload.empIds || []).slice(0, 60), moved = 0, fails = [];
+        if (!ids.length) return err_('Select at least one person.');
+        ids.forEach(function (id) {
+          var ee = empById_(state, id);
+          if (!ee) { fails.push(String(id)); return; }
+          var r1 = swapLine_(state, ee, payload.target, now);
+          if (r1 && r1.success === false) fails.push(ee.name); else moved++;
+        });
+        if (!moved) return err_('Nobody could be moved' + (fails.length ? ' (' + fails.join(', ') + ')' : '') + '.');
+        return { moved: moved, skipped: fails };
+      case 'toggleTask':
+        if (!state.taskDefinitions[payload.code]) return err_('Unknown workstation.');
+        state.disabledTasks[payload.code] = !state.disabledTasks[payload.code];
+        return {};
+      case 'addTask':
+        var code = String(payload.code || '').trim().toUpperCase();
+        if (!/^[A-Z0-9]{1,6}$/.test(code)) return err_('Code must be 1-6 letters/numbers.');
+        if (state.taskDefinitions[code]) return err_('That workstation already exists.');
+        var nm = String(payload.name || '').trim().substr(0, 40) || code;
+        state.taskDefinitions[code] = { name: nm, badge: code, headerBg: String(payload.headerBg || 'bg-slate-600'), pillBg: String(payload.pillBg || 'bg-slate-100 text-slate-800 border-slate-200') };
+        return {};
+      case 'breakDuration':
+        var m = Math.round(Number(payload.mins));
+        if (!(m >= 5 && m <= 120)) return err_('Break must be between 5 and 120 minutes.');
+        state.breakDurationSetting = m;
+        return {};
+      case 'attendance': return setAttendance_(state, payload.empId, payload.kind, payload.time, by, now);
+      case 'markAllPresent': return markAllPresent_(state, by, now);
+      case 'minStaff':
+        if (!state.taskDefinitions[payload.code]) return err_('Unknown workstation.');
+        var n = Math.max(0, Math.min(99, Math.round(Number(payload.n) || 0)));
+        if (n === 0) delete state.minStaff[payload.code]; else state.minStaff[payload.code] = n;
+        trackBreaches_(state, now);
+        return {};
+      case 'announce': return addAnnouncement_(state, payload.target, payload.message, 'Supervisor', '', now);
+      case 'announceEnd':
+        var ok = false;
+        (state.announcements || []).forEach(function (a) { if (a.id === payload.id) { a.ended = true; ok = true; } });
+        return ok ? {} : err_('Announcement not found.');
+      case 'ring':
+        if (state.attendance[e.id] !== 'Present') return err_(e.name + ' is not on duty.');
+        return addSummon_(state, e, payload.message, by, now);
+      case 'nsSetCount': return nsSetCount_(state, payload.id, payload.count, by, now);
+      case 'nsCancel':
+        state.nonSortRequests = (state.nonSortRequests || []).filter(function (r) { return r.id !== payload.id; });
+        return {};
+      case 'ringCancel':
+        state.activeSummons = (state.activeSummons || []).filter(function (s) { return lc_(s.targetId) !== lc_(payload.empId); });
+        return {};
+      default: return err_('Unknown command: ' + op);
+    }
+  });
+}
+
+// ============================== BROADCAST (WhatsApp-group style message / image to everyone) ==============================
+var BC_FOLDER_NAME = 'Shift Broadcast Images';
+var BC_MAX = 40;
+function bcEligible_(state, b, e) {
+  if (lc_(e.id) === lc_(b.senderId)) return false;
+  if (state.attendance[e.id] !== 'Present') return false;
+  var t = b.t || {};
+  if (t.all) return true;
+  var a = state.assignments[e.id] || {};
+  var line = a.activeStation || a.task1;
+  if ((t.lines || []).indexOf(line) >= 0) return true;
+  return (t.ids || []).map(lc_).indexOf(lc_(e.id)) >= 0;
+}
+function bcActive_(b, now) { return !b.ended && (!b.exp || b.exp > now); }
+function bcView_(state, v, now) {
+  var all = state.broadcasts || [], act = [], hist = [];
+  all.forEach(function (b) {
+    var elig = state.employees.filter(function (e) { return bcEligible_(state, b, e); });
+    var acked = elig.filter(function (e) { return b.acks && b.acks[e.id]; });
+    if (bcActive_(b, now)) {
+      var c = clone_(b);
+      c.total = elig.length; c.ackedCount = acked.length; c.status = 'active';
+      c.unseen = elig.filter(function (e) { return !(b.acks && b.acks[e.id]); }).map(function (e) { return { id: e.id, name: e.name }; }).slice(0, 80);
+      act.push(c);
+    } else {
+      hist.push({ id: b.id, title: b.title, message: String(b.message || '').substr(0, 140), imageUrl: b.imageUrl || '', priority: b.priority, sender: b.sender, ts: b.ts, timeStr: b.timeStr,
+        status: b.ended ? 'ended' : 'expired', total: b.total || elig.length, ackedCount: b.ackedCount != null ? b.ackedCount : acked.length });
+    }
+  });
+  v.broadcasts = act;
+  v.bcHistory = hist.slice(0, 12);
+}
+function bcImageUrl_(id) { return id ? 'https://drive.google.com/thumbnail?id=' + id + '&sz=w1000' : ''; }
+function bcExpiry_(state, kind, now) {
+  if (kind === 'manual') return 0;
+  if (kind === '24h') return now + 24 * 3600000;
+  if (kind === '3d') return now + 3 * 24 * 3600000;
+  var end = shiftEndMs_(state.dateStr);
+  return end > now + 30 * 60000 ? end : now + 12 * 3600000;        // 'shift' (default)
+}
+function sendBroadcast(tok, data) {
+  data = data || {};
+  return mutate_(tok, ['tl', 'dash'], '', {}, function (state, sess, now) {
+    var title = String(data.title || '').trim().substr(0, 60);
+    var msg = String(data.message || '').trim().substr(0, 800);
+    var img = String(data.imageId || '').trim();
+    if (img && !/^[A-Za-z0-9_-]{10,100}$/.test(img)) return err_('Bad image.');
+    if (!msg && !img) return err_('Write a message or add a photo first.');
+    var t = { all: !!data.all, lines: [], ids: [] };
+    (data.lines || []).forEach(function (l) { l = String(l).toUpperCase(); if (state.taskDefinitions[l] && t.lines.indexOf(l) < 0) t.lines.push(l); });
+    (data.ids || []).slice(0, 80).forEach(function (i) { var e = empById_(state, i); if (e && t.ids.indexOf(e.id) < 0) t.ids.push(e.id); });
+    if (!t.all && !t.lines.length && !t.ids.length) return err_('Choose who should get it.');
+    var me = sess.kind === 'P' ? empById_(state, sess.empId) : null;
+    var b = { id: 'bc-' + now + '-' + rid_(), title: title, message: msg, imageId: img, imageUrl: bcImageUrl_(img), priority: data.priority === 'urgent' ? 'urgent' : 'normal',
+      t: t, sender: me ? me.name : 'Supervisor', senderId: me ? me.id : '', ts: now, timeStr: fmt_(now, 'dd/MM hh:mm a'), exp: bcExpiry_(state, String(data.expiry || 'shift'), now),
+      acks: {}, reply: {}, ping: 0, ended: false };
+    state.broadcasts = [b].concat(state.broadcasts || []).slice(0, BC_MAX);
+    return { broadcastId: b.id };
+  });
+}
+function endBroadcast(tok, id) {
+  return mutate_(tok, ['tl', 'dash'], '', {}, function (state, sess, now) {
+    var f = false;
+    (state.broadcasts || []).forEach(function (b) {
+      if (b.id !== id) return;
+      var elig = state.employees.filter(function (e) { return bcEligible_(state, b, e); });
+      b.total = elig.length; b.ackedCount = elig.filter(function (e) { return b.acks && b.acks[e.id]; }).length;
+      b.ended = true; f = true;
+    });
+    return f ? {} : err_('Message not found.');
+  });
+}
+function remindBroadcast(tok, id) {
+  return mutate_(tok, ['tl', 'dash'], '', {}, function (state, sess, now) {
+    var f = false;
+    (state.broadcasts || []).forEach(function (b) { if (b.id === id && bcActive_(b, now)) { b.ping = (b.ping || 0) + 1; f = true; } });
+    return f ? {} : err_('Message is not active.');
+  });
+}
+function ackBroadcast(tok, empId, id, reply) {
+  return mutate_(tok, ['self', 'dash'], empId, {}, function (state, sess, now) {
+    var e = empById_(state, empId);
+    if (!e) return err_('Employee not found.');
+    (state.broadcasts || []).forEach(function (b) {
+      if (b.id !== id) return;
+      b.acks = b.acks || {}; b.reply = b.reply || {};
+      b.acks[e.id] = now;
+      if (reply === 'ok' || reply === 'unclear') b.reply[e.id] = reply;
+    });
+    return {};
+  });
+}
+// photo -> Drive (viewable by link). dataUrl is a resized JPEG made in the browser.
+function bcSaveImage_(dataUrl, prefix) {
+  try {
+    var m = /^data:(image\/(?:jpeg|png|webp));base64,([A-Za-z0-9+\/=]+)$/.exec(String(dataUrl || ''));
+    if (!m) return err_('Not a valid image.');
+    var bytes = Utilities.base64Decode(m[2]);
+    if (bytes.length > 4 * 1024 * 1024) return err_('Image is too big (max 4 MB).');
+    var folder = bcFolder_();
+    var ext = m[1] === 'image/png' ? 'png' : m[1] === 'image/webp' ? 'webp' : 'jpg';
+    var f = folder.createFile(Utilities.newBlob(bytes, m[1], (prefix || 'broadcast') + '-' + nowMs_() + '.' + ext));
+    f.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+    return { success: true, imageId: f.getId(), imageUrl: bcImageUrl_(f.getId()) };
+  } catch (e) { return { success: false, error: 'Photo upload failed: ' + String(e && e.message || e) + ' (owner must run authorizeDrive once)' }; }
+}
+function uploadBroadcastImage(tok, dataUrl) {
+  var au = checkAuth_(loadState_(), tok, ['tl', 'dash']);
+  if (!au.ok) return { success: false, code: au.res.code, error: au.res.error };
+  return bcSaveImage_(dataUrl, 'broadcast');
+}
+// a CC attaches a photo (damaged item...) to a help call. Limited so nobody can fill the Drive.
+function pdaUploadHelpPhoto(tok, empId, dataUrl) {
+  var au = checkAuth_(loadState_(), tok, ['self', 'dash'], empId);
+  if (!au.ok) return { success: false, code: au.res.code, error: au.res.error };
+  var ck = 'PHUP_' + lc_(empId), n = 0;
+  try { n = parseInt(cache_().get(ck) || '0', 10) || 0; } catch (e) {}
+  if (n >= 12) return err_('Too many photos in a short time. Try again in a few minutes.');
+  var r = bcSaveImage_(dataUrl, 'help');
+  if (r.success) { try { cache_().put(ck, String(n + 1), 1800); } catch (e) {} }
+  return r;
+}
+function pdaAttachHelpPhoto(tok, empId, helpId, imageId) {
+  return mutate_(tok, ['self', 'dash'], empId, { shift: true }, function (state, sess, now) {
+    if (!/^[A-Za-z0-9_-]{10,100}$/.test(String(imageId || ''))) return err_('Bad image.');
+    var f = false;
+    (state.activeHelpRequests || []).forEach(function (r) {
+      if (r.id === helpId && lc_(r.empId) === lc_(empId)) { r.imageId = String(imageId); r.imageUrl = bcImageUrl_(String(imageId)); f = true; }
+    });
+    return f ? {} : err_('Your help request is no longer open.');
+  });
+}
+function bcFolder_() {
+  var props = PropertiesService.getScriptProperties();
+  var id = props.getProperty('BC_FOLDER_ID');
+  if (id) { try { return DriveApp.getFolderById(id); } catch (e) {} }
+  var it = DriveApp.getFoldersByName(BC_FOLDER_NAME);
+  var f = it.hasNext() ? it.next() : DriveApp.createFolder(BC_FOLDER_NAME);
+  props.setProperty('BC_FOLDER_ID', f.getId());
+  return f;
+}
+// run ONCE from the editor (Run > authorizeDrive) so Google asks for the Drive permission
+function authorizeDrive() {
+  var f = bcFolder_();
+  Logger.log('Drive OK. Photos are stored in the folder "' + f.getName() + '" (' + f.getUrl() + ')');
+  return f.getUrl();
+}
+
+// ============================== TEAM LEAD COMMANDS (same engine as the dashboard, safe subset) ==============================
+var TL_OPS = { breakStart: 1, breakEnd: 1, breakUndo: 1, helperDeploy: 1, helperRevert: 1, swap: 1, swapMany: 1, attendance: 1, markAllPresent: 1, ring: 1, ringCancel: 1, nsSetCount: 1, nsCancel: 1 };
+function tlAction(token, op, payload) {
+  if (!TL_OPS[op]) return err_('Not allowed for Team Lead: ' + op);
+  return dashAction_(token, op, payload, ['tl', 'dash']);
+}
+
+// ============================== ROSTER WRITES (sheet) ==============================
+function addRosterEmployee(token, name, id, defaultTask, weekOff, password) {
+  return mutate_(token, ['dash'], '', {}, function (state, sess, now) {
+    name = String(name || '').trim();
+    if (!name) return err_('Name is required.');
+    var sheet = findRosterSheet_(ss_());
+    if (!sheet) return err_('Roster sheet not found.');
+    var roster = readRoster_() || [];
+    id = String(id || '').trim();
+    if (!id) {
+      var max = 0;
+      roster.forEach(function (r) { var m = /(\d+)$/.exec(r.id); if (m) max = Math.max(max, parseInt(m[1], 10)); });
+      id = 'EMP' + (max + 1);
+    }
+    for (var i = 0; i < roster.length; i++) if (lc_(roster[i].id) === lc_(id)) return err_('ID ' + id + ' already exists.');
+    var task = String(defaultTask || 'PK').trim().toUpperCase();
+    var wo = String(weekOff || '').trim();
+    var row = [id, name];
+    DAY_NAMES.forEach(function (d) { row.push(d === wo ? 'WO' : task); });
+    row.push(String(password || ''));
+    sheet.appendRow(row);
+    clearRosterCache_();
+    ensureTaskDef_(state, task);
+    var fresh = readRoster_();
+    if (fresh) { syncRoster_(state, fresh); cache_().put('RSYNC', '1', ROSTER_CACHE_TTL); }
+    return { id: id };
+  });
+}
+function removeRosterEmployee(token, id) {
+  return mutate_(token, ['dash'], '', {}, function (state, sess, now) {
+    var sheet = findRosterSheet_(ss_());
+    if (!sheet) return err_('Roster sheet not found.');
+    var data = sheet.getDataRange().getValues();
+    var found = -1;
+    for (var i = 1; i < data.length; i++) if (lc_(data[i][0]) === lc_(id)) { found = i + 1; break; }
+    if (found < 0) return err_('Employee not found in the roster sheet.');
+    sheet.deleteRow(found);
+    clearRosterCache_();
+    var fresh = readRoster_();
+    if (fresh) { syncRoster_(state, fresh); cache_().put('RSYNC', '1', ROSTER_CACHE_TTL); }
+    return {};
+  });
+}
+
+// ============================== PDA ACTIONS ==============================
+function pdaSetBreakAction(tok, empId, action) {
+  return mutate_(tok, ['self', 'dash'], empId, { shift: true }, function (state, sess, now) {
+    var e = empById_(state, empId);
+    if (!e) return err_('Employee not found.');
+    if (action === 'start') return startBreak_(state, e, now);
+    if (action === 'end') return endBreak_(state, e, now);
+    return err_('Unknown break action.');
+  });
+}
+function pdaRaiseHelpRequest(tok, empId, location, reason, imageId) {
+  return mutate_(tok, ['self', 'dash'], empId, { shift: true }, function (state, sess, now) {
+    var e = empById_(state, empId);
+    if (!e) return err_('Employee not found.');
+    if (state.attendance[e.id] !== 'Present') return err_('You are not on duty.');
+    if (state.assignments[e.id].onBreak) return err_('You are on break.');
+    var req = newHelp_(state, e, location, now, reason, imageId);
+    pushChat_('HELP CALL (' + SHIFT_NAME + '): ' + e.name + ' at ' + req.location + ' (' + req.station + ')' + (req.reason ? ' - ' + req.reason : '') + (req.imageUrl ? ' [photo]' : ''));
+    return { helpId: req.id };
+  });
+}
+function flAcceptHelpRequest(tok, helpId, flId) {
+  return mutate_(tok, ['fl', 'dash'], '', { shift: true }, function (state, sess, now) {
+    var req = (state.activeHelpRequests || []).filter(function (r) { return r.id === helpId; })[0];
+    if (!req) return err_('Help call no longer exists.');
+    var who = actor_(state, sess);
+    if (req.status === 'accepted' && req.acceptedBy && lc_(req.acceptedById) !== lc_(who.id)) return err_('Already accepted by ' + req.acceptedBy + '.');
+    req.status = 'accepted'; req.acceptedBy = who.name; req.acceptedById = who.id; req.acceptedByRole = who.role; req.acceptedAt = now; req.acceptedAtStr = fmt_(now, 'hh:mm a');
+    recordHelpAccept_(state, req, now);
+    rememberFlAisle_(state, who.role === 'FL' || who.role === 'TL' ? who.id : '', req);
+    logHelp_(state, 'accepted', req, who, now);
+    return {};
+  });
+}
+function resolveHelpRequest(tok, helpId) {
+  return mutate_(tok, ['any', 'dash'], '', {}, function (state, sess, now) {      // 'dash' = the dashboard also works in open (no-PIN) mode without a token
+    var req = (state.activeHelpRequests || []).filter(function (r) { return r.id === helpId; })[0];
+    if (!req) return {};                                       // already gone: idempotent
+    var allowed = sess.kind === 'D' || isFL_(state, sess.empId) || isTL_(state, sess.empId) || lc_(req.empId) === lc_(sess.empId);
+    if (!allowed) return { success: false, code: 'FORBIDDEN', error: 'You are not allowed to clear this call.' };
+    state.activeHelpRequests = state.activeHelpRequests.filter(function (r) { return r.id !== helpId; });
+    if (req.respMs == null && now - req.timestamp >= HELP_ESCALATE_MS) { ensureHelpStats_(state).escalated++; req.wasEscalated = true; }
+    if (req.acceptedById) rememberFlAisle_(state, req.acceptedById, req);
+    logHelp_(state, 'cleared', req, actor_(state, sess), now, { acceptedBy: req.acceptedBy || '', helperName: req.helperName || '' });
+    return {};
+  });
+}
+function dispatchHelperToHelpCall(tok, helpId, helperId) {
+  return mutate_(tok, ['tl', 'dash'], '', { shift: true }, function (state, sess, now) {
+    var req = (state.activeHelpRequests || []).filter(function (r) { return r.id === helpId; })[0];
+    if (!req) return err_('Help call no longer exists.');
+    var h = empById_(state, helperId);
+    if (!h) return err_('Helper not found.');
+    if (state.attendance[h.id] !== 'Present') return err_(h.name + ' is not on duty.');
+    if (state.assignments[h.id].onBreak) return err_(h.name + ' is on break.');
+    var r = deployHelper_(state, h, req.station, now);
+    if (r.success === false) return r;
+    req.status = 'accepted'; req.helperId = h.id; req.helperName = h.name;
+    var dw = actor_(state, sess);
+    if (!req.acceptedBy) { req.acceptedBy = dw.name; req.acceptedById = dw.id; req.acceptedByRole = dw.role; req.acceptedAt = now; req.acceptedAtStr = fmt_(now, 'hh:mm a'); recordHelpAccept_(state, req, now); }
+    logHelp_(state, 'dispatched', req, dw, now, { helperName: h.name });
+    return { helperName: h.name };
+  });
+}
+function pdaDeployHelperDirect(tok, workerId, task) {
+  return mutate_(tok, ['tl', 'dash'], '', { shift: true }, function (state, sess, now) {
+    var e = empById_(state, workerId);
+    if (!e) return err_('Employee not found.');
+    return deployHelper_(state, e, task, now);
+  });
+}
+function pdaRingWorkerBell(tok, targetId, message, tlName) {
+  return mutate_(tok, ['tl', 'dash'], '', { shift: true }, function (state, sess, now) {
+    var e = empById_(state, targetId);
+    if (!e) return err_('Employee not found.');
+    if (state.attendance[e.id] !== 'Present') return err_(e.name + ' is not on duty.');
+    var who = sess.kind === 'P' ? (empById_(state, sess.empId) || {}).name : '';
+    return addSummon_(state, e, message, who || tlName, now);
+  });
+}
+function pdaAcknowledgeBell(tok, targetId) {
+  return mutate_(tok, ['self', 'dash'], targetId, {}, function (state) {
+    state.activeSummons = (state.activeSummons || []).filter(function (s) { return lc_(s.targetId) !== lc_(targetId); });
+    return {};
+  });
+}
+function sendAnnouncement(tok, target, message, sender, senderId) {
+  return mutate_(tok, ['tl', 'dash'], '', { shift: true }, function (state, sess, now) {
+    var me = sess.kind === 'P' ? empById_(state, sess.empId) : null;
+    return addAnnouncement_(state, target, message, me ? me.name : (sender || 'Supervisor'), me ? me.id : (senderId || ''), now);
+  });
+}
+function ackAnnouncement(tok, empId, annId) {
+  return mutate_(tok, ['self', 'dash'], empId, {}, function (state, sess, now) {
+    var e = empById_(state, empId);
+    if (!e) return err_('Employee not found.');
+    var ann = (state.announcements || []).filter(function (a) { return a.id === annId; })[0];
+    if (!ann) return {};
+    ann.acks = ann.acks || {};
+    ann.acks[e.id] = now;
+    return {};
+  });
+}
+function tlSetAttendance(tok, empId, kind, time, tlName) {
+  return mutate_(tok, ['tl', 'dash'], '', {}, function (state, sess, now) {
+    var me = sess.kind === 'P' ? empById_(state, sess.empId) : null;
+    return setAttendance_(state, empId, kind, time, me ? me.name : (tlName || 'Supervisor'), now);
+  });
+}
+// ---------- Non Sort putaway ----------
+function nsFind_(state, reqId) {
+  var l = (state.nonSortRequests || []).filter(function (r) { return r.id === reqId; });
+  return l[0] || null;
+}
+function nsSetCount_(state, reqId, count, who, now) {
+  var req = nsFind_(state, reqId);
+  if (!req) return err_('Request no longer exists.');
+  var n = Math.round(Number(count));
+  if (!(n >= 1 && n <= 99999)) return err_('Enter a quantity between 1 and 99999.');
+  req.count = n; req.status = 'ready'; req.countedBy = who; req.readyAt = now;
+  return {};
+}
+function pdaRequestNonSortCount(tok, empId, awb) {
+  return mutate_(tok, ['self', 'dash'], empId, { shift: true }, function (state, sess, now) {
+    var e = empById_(state, empId);
+    if (!e) return err_('Employee not found.');
+    if (state.attendance[e.id] !== 'Present') return err_('You are not on duty.');
+    if (state.assignments[e.id].onBreak) return err_('You are on break.');
+    awb = String(awb == null ? '' : awb).trim().substr(0, 40);
+    if (!awb) return err_('Enter or scan an AWB first.');
+    var req = {
+      id: 'ns-' + now + '-' + rid_(), empId: e.id, empName: e.name, awb: awb, count: null, status: 'pending',
+      timeStr: fmt_(now, 'hh:mm a'), timestamp: now
+    };
+    state.nonSortRequests = (state.nonSortRequests || []).filter(function (r) { return lc_(r.empId) !== lc_(e.id) || r.status !== 'pending'; });
+    state.nonSortRequests.unshift(req);
+    return { requestId: req.id };
+  });
+}
+function tlSetNonSortCount(tok, reqId, count) {
+  return mutate_(tok, ['tl', 'dash'], '', { shift: true }, function (state, sess, now) {
+    var me = sess.kind === 'P' ? empById_(state, sess.empId) : null;
+    return nsSetCount_(state, reqId, count, me ? me.name : 'Supervisor', now);
+  });
+}
+function tlCancelNonSort(tok, reqId) {
+  return mutate_(tok, ['tl', 'dash'], '', {}, function (state) {
+    state.nonSortRequests = (state.nonSortRequests || []).filter(function (r) { return r.id !== reqId; });
+    return {};
+  });
+}
+function pdaCancelNonSort(tok, reqId) {
+  return mutate_(tok, ['any'], '', {}, function (state, sess) {
+    var req = nsFind_(state, reqId);
+    if (!req) return {};
+    var allowed = sess.kind === 'D' || lc_(req.empId) === lc_(sess.empId) || isTL_(state, sess.empId);
+    if (!allowed) return { success: false, code: 'FORBIDDEN', error: 'This request belongs to someone else.' };
+    state.nonSortRequests = state.nonSortRequests.filter(function (r) { return r.id !== reqId; });
+    return {};
+  });
+}
+function pdaCompleteNonSortPutaway(tok, reqId) {
+  return mutate_(tok, ['any'], '', { shift: true }, function (state, sess, now) {
+    var req = nsFind_(state, reqId);
+    if (!req) return err_('Request record not found (already saved?).');
+    if (sess.kind !== 'D' && lc_(req.empId) !== lc_(sess.empId)) return { success: false, code: 'FORBIDDEN', error: 'This request belongs to someone else.' };
+    if (req.status !== 'ready' || !(req.count >= 1)) return err_('Waiting for the TL to enter the count.');
+    appendNonSortRow_(state, req, now);                  // sheet first: if this throws, nothing is lost and the CC can retry
+    state.nonSortRequests = state.nonSortRequests.filter(function (r) { return r.id !== reqId; });
+    req.status = 'completed'; req.completedTimeStr = fmt_(now, 'hh:mm a');
+    state.nonSortHistory = (state.nonSortHistory || []);
+    state.nonSortHistory.unshift(req);
+    if (state.nonSortHistory.length > 300) state.nonSortHistory.length = 300;
+    var key = lc_(req.empName);
+    var o = state.nsBoard[key] || (state.nsBoard[key] = { empName: req.empName, awbs: 0, totalCount: 0 });
+    o.awbs += 1; o.totalCount += req.count;
+    return {};
+  });
+}
+function tlMarkAllPresent(tok) {
+  return mutate_(tok, ['tl', 'dash'], '', {}, function (state, sess, now) {
+    var me = sess.kind === 'P' ? empById_(state, sess.empId) : null;
+    return markAllPresent_(state, me ? me.name : 'Supervisor', now);
+  });
+}
+
+// ============================== SHIFT CONCLUSION ==============================
+function ensureSheet_(ss, name, headers) {
+  var sh = ss.getSheetByName(name);
+  if (!sh) {
+    sh = ss.insertSheet(name);
+    sh.appendRow(headers);
+    sh.getRange(1, 1, 1, headers.length).setBackground('#0f172a').setFontColor('#ffffff').setFontWeight('bold');
+    sh.setFrozenRows(1);
+  }
+  return sh;
+}
+function empStats_(state, e) {
+  var id = lc_(e.id);
+  var h = state.helperWorkHistory.filter(function (x) { return lc_(x.empId) === id; });
+  var b = state.breakWorkHistory.filter(function (x) { return lc_(x.empId) === id; });
+  var det = state.attendanceDetail[e.id] || {};
+  var st = { lateMins: det.late ? det.late.mins : 0, lateTime: det.late ? det.late.time : '', leftAt: det.left ? det.left.time : '',
+    helperMins: 0, helperSessions: h.length, breakMins: 0, overstayMins: 0, overstayCount: 0 };
+  h.forEach(function (x) { st.helperMins += x.mins; });
+  b.forEach(function (x) { st.breakMins += x.actualMins; if (x.overtimeMins > 0) { st.overstayMins += x.overtimeMins; st.overstayCount++; } });
+  return st;
+}
+function concludeShift_(state, now) {
+  if (state.concluded) return;
+  var end = shiftEndMs_(state.dateStr);
+  state.errors = [];
+  // 1. auto-close anything still running at shift end
+  state.employees.forEach(function (e) {
+    var a = state.assignments[e.id];
+    if (!a) return;
+    if (a.onBreak) closeBreak_(state, e, now, true, end);
+    if (a.isHelping) closeHelper_(state, e, now, end);
+  });
+  (state.breachHistory || []).forEach(function (h) { if (!h.end) h.end = end; });
+  (state.activeHelpRequests || []).forEach(function (r) { if (r.respMs == null && end - r.timestamp >= HELP_ESCALATE_MS) ensureHelpStats_(state).escalated++; });
+  state.activeHelpRequests = []; state.activeSummons = []; state.nonSortRequests = [];
+  (state.announcements || []).forEach(function (a) { a.ended = true; });
+
+  // 2. rows + summary
+  var counts = { Present: 0, AB: 0, LV: 0, WO: 0, EO: 0 };
+  var lateCount = 0, overstayCount = 0, helperSessions = 0;
+  var roster = state.employees.map(function (e) {
+    var st = state.attendance[e.id] || 'Present';
+    counts[st] = (counts[st] || 0) + 1;
+    var a = state.assignments[e.id] || {};
+    var s = empStats_(state, e);
+    if (s.lateMins > 0) lateCount++;
+    overstayCount += s.overstayCount; helperSessions += s.helperSessions;
+    var role = 'Primary Operator';
+    if (st === 'WO') role = 'Week Off';
+    else if (st === 'AB') role = 'Absent';
+    else if (st === 'LV') role = 'On Leave';
+    else if (st === 'EO') role = 'Left early at ' + s.leftAt;
+    else if (a.swappedFrom) role = 'Covering line (planned ' + a.swappedFrom + ')';
+    else if (s.helperSessions > 0) role = 'Primary + helper (' + s.helperSessions + ' session(s), ' + fmtDuration_(s.helperMins) + ')';
+    var brk = 'Pending';
+    if (st === 'WO') brk = 'Rest Day';
+    else if (s.breakMins > 0) brk = 'Done (' + s.breakMins + 'm' + (s.overstayMins > 0 ? ', +' + s.overstayMins + 'm late' : '') + ')';
+    return {
+      id: e.id, name: e.name, planned: plannedFor_(e, state.dayName), attendance: st,
+      activeStation: st === 'EO' ? (a.leftFrom || 'None') : (a.activeStation || a.task1 || 'None'),
+      roleText: role, breakSummary: brk, lateMins: s.lateMins, lateTime: s.lateTime, leftAt: s.leftAt,
+      helperMins: s.helperMins, helperSessions: s.helperSessions, breakMins: s.breakMins, overstayMins: s.overstayMins, overstayCount: s.overstayCount
+    };
+  });
+  var summary = {
+    totalStaff: roster.length, presentCount: counts.Present, absentCount: counts.AB + counts.LV, leaveCount: counts.LV, absentOnlyCount: counts.AB,
+    weekoffCount: counts.WO, earlyOutCount: counts.EO, lateCount: lateCount, breaksTakenCount: state.breakWorkHistory.length,
+    overstayCount: overstayCount, helperSessions: helperSessions, breachCount: (state.breachHistory || []).length,
+    helpRaised: (state.helpStats || {}).raised || 0, helpAccepted: (state.helpStats || {}).accepted || 0,
+    helpAvgRespSecs: (state.helpStats && state.helpStats.accepted) ? Math.round(state.helpStats.totalMs / state.helpStats.accepted / 1000) : 0,
+    helpMaxRespSecs: Math.round(((state.helpStats || {}).maxMs || 0) / 1000), helpEscalated: (state.helpStats || {}).escalated || 0
+  };
+  var snap = {
+    id: 'snap-' + end + '-' + rid_(), createdAt: now, savedAt: fmt_(end, 'yyyy-MM-dd hh:mm a') + ' (Automated End-of-Shift)', savedBy: 'System Operations Scheduler',
+    shift: SHIFT_NAME, day: state.dayName, dateStr: state.dateStr, summary: summary, roster: roster,
+    breaches: (state.breachHistory || []).map(function (h) { return { code: h.code, min: h.min, minActive: h.minActive, start: fmt_(h.start, 'HH:mm'), end: fmt_(h.end, 'HH:mm') }; })
+  };
+
+  // 3. sheets
+  var ss = null;
+  try { ss = ss_(); } catch (e) { state.errors.push('open sheet: ' + e); }
+  if (ss) {
+    try {
+      var daily = ensureSheet_(ss, 'Daily_Operations_Log', ['Date', 'Shift', 'Day', 'Employee ID', 'Employee Name', 'Attendance', 'Planned Task', 'Final Active Station', 'Role / Movement', 'Break Taken']);
+      var drows = roster.map(function (r) { return [state.dateStr, SHIFT_NAME, state.dayName, r.id, r.name, r.attendance, r.planned, r.activeStation, r.roleText, r.breakSummary]; });
+      if (drows.length) {
+        var d0 = daily.getLastRow() + 1;
+        daily.getRange(d0, 1, drows.length, 1).setNumberFormat('@');
+        daily.getRange(d0, 1, drows.length, 10).setValues(drows);
+      }
+    } catch (e) { state.errors.push('daily log: ' + e); }
+    try {
+      var arch = ensureSheet_(ss, 'Shift_Archive', ['Saved At', 'Day', 'Total Staff', 'Present', 'Absent', 'Week Off', 'Breaks Taken', 'Helper Sessions', 'Snapshot JSON']);
+      var js = JSON.stringify(snap);
+      if (js.length > 49000) { var slim = clone_(snap); slim.roster = slim.roster.map(function (r) { return { id: r.id, name: r.name, planned: r.planned, attendance: r.attendance, activeStation: r.activeStation }; }); js = JSON.stringify(slim); }
+      if (js.length > 49000) js = JSON.stringify({ savedAt: snap.savedAt, day: snap.day, summary: snap.summary, roster: [] });
+      arch.appendRow([snap.savedAt, snap.day, summary.totalStaff, summary.presentCount, summary.absentCount, summary.weekoffCount, summary.breaksTakenCount, summary.helperSessions, js]);
+    } catch (e) { state.errors.push('archive: ' + e); }
+    try {
+      var perf = ensureSheet_(ss, 'CC_Performance_Log', ['Date', 'Day', 'Employee ID', 'Employee Name', 'Attendance', 'Late Mins', 'Left Early At', 'Helper Mins', 'Helper Sessions', 'Break Mins', 'Overstay Mins', 'Overstay Count']);
+      var prow = roster.map(function (r) { return [state.dateStr, state.dayName, r.id, r.name, r.attendance, r.lateMins, r.leftAt, r.helperMins, r.helperSessions, r.breakMins, r.overstayMins, r.overstayCount]; });
+      if (prow.length) {
+        var p0 = perf.getLastRow() + 1;
+        perf.getRange(p0, 1, prow.length, 1).setNumberFormat('@');
+        perf.getRange(p0, 1, prow.length, 12).setValues(prow);
+      }
+    } catch (e) { state.errors.push('perf log: ' + e); }
+  }
+
+  // 4. e-mail + chat
+  try { sendReport_(state, snap, false); } catch (e) { state.errors.push('email: ' + e); }
+  pushChat_(SHIFT_NAME + ' ' + state.dateStr + ' closed. Present ' + summary.presentCount + ', absent ' + summary.absentCount + ', late ' + summary.lateCount + ', early out ' + summary.earlyOutCount + ', overstays ' + summary.overstayCount + ', min-staff breaches ' + summary.breachCount + ', help calls ' + summary.helpRaised + ' (avg response ' + fmtSecs_(summary.helpAvgRespSecs) + ', escalated ' + summary.helpEscalated + ').');
+  state.concluded = true;
+  state.concludedAt = now;
+}
+
+function fmtSecs_(n) { n = Math.round(Number(n) || 0); return n >= 60 ? Math.floor(n / 60) + 'm ' + (n % 60) + 's' : n + 's'; }
+function reportRecipients_(state) {
+  var list = (REPORT_EMAILS || []).slice();
+  var roster = getRoster_() || [];
+  roster.forEach(function (r) {
+    if (!r.email) return;
+    var a = state ? (state.assignments[r.id] || {}) : {};
+    if (plannedFor_(r, state ? state.dayName : '') === 'TL' || a.task1 === 'TL') list.push(r.email);
+  });
+  var seen = {}, out = [];
+  list.forEach(function (m) { var k = lc_(m); if (k && !seen[k]) { seen[k] = 1; out.push(m); } });
+  return out;
+}
+function sendReport_(state, snap, isTest) {
+  var to = reportRecipients_(state);
+  if (!to.length) return;
+  var s = snap.summary;
+  function table(title, rows, cols) {
+    if (!rows.length) return '<h3>' + esc_(title) + '</h3><p style="color:#64748b">None</p>';
+    var h = '<h3>' + esc_(title) + '</h3><table cellpadding="6" style="border-collapse:collapse;font-size:13px;border:1px solid #cbd5e1"><tr>' +
+      cols.map(function (c) { return '<th align="left" style="background:#f1f5f9;border:1px solid #cbd5e1">' + esc_(c) + '</th>'; }).join('') + '</tr>';
+    rows.forEach(function (r) { h += '<tr>' + r.map(function (c) { return '<td style="border:1px solid #e2e8f0">' + esc_(c) + '</td>'; }).join('') + '</tr>'; });
+    return h + '</table>';
+  }
+  var late = snap.roster.filter(function (r) { return r.lateMins > 0; }).map(function (r) { return [r.name, r.id, r.lateTime, r.lateMins + 'm']; });
+  var early = snap.roster.filter(function (r) { return r.leftAt; }).map(function (r) { return [r.name, r.id, r.leftAt]; });
+  var over = snap.roster.filter(function (r) { return r.overstayCount > 0; }).map(function (r) { return [r.name, r.id, r.overstayCount, r.overstayMins + 'm']; });
+  var help = snap.roster.filter(function (r) { return r.helperSessions > 0; }).map(function (r) { return [r.name, r.id, r.helperSessions, fmtDuration_(r.helperMins)]; });
+  var absent = snap.roster.filter(function (r) { return r.attendance === 'AB' || r.attendance === 'LV'; }).map(function (r) { return [r.name, r.id, r.attendance === 'AB' ? 'Absent' : 'Leave']; });
+  var br = snap.breaches.map(function (b) { return [b.code, b.start + ' - ' + b.end, 'min ' + b.min, 'lowest ' + b.minActive]; });
+  var html = '<div style="font-family:Arial,sans-serif;color:#0f172a"><h2>' + esc_(SHIFT_NAME) + ' report - ' + esc_(snap.dateStr) + ' (' + esc_(snap.day) + ')' + (isTest ? ' [TEST]' : '') + '</h2>' +
+    '<p><b>Present:</b> ' + s.presentCount + ' &nbsp; <b>Absent/Leave:</b> ' + s.absentCount + ' &nbsp; <b>Week off:</b> ' + s.weekoffCount + ' &nbsp; <b>Early out:</b> ' + s.earlyOutCount + ' &nbsp; <b>Late:</b> ' + s.lateCount + '</p>' +
+    '<p><b>Breaks taken:</b> ' + s.breaksTakenCount + ' &nbsp; <b>Break overstays:</b> ' + s.overstayCount + ' &nbsp; <b>Helper sessions:</b> ' + s.helperSessions + ' &nbsp; <b>Min-staff breaches:</b> ' + s.breachCount + '</p>' +
+    '<p><b>Help calls:</b> ' + (s.helpRaised || 0) + ' &nbsp; <b>Avg response:</b> ' + fmtSecs_(s.helpAvgRespSecs) + ' &nbsp; <b>Slowest:</b> ' + fmtSecs_(s.helpMaxRespSecs) + ' &nbsp; <b>Escalated (3+ min):</b> ' + (s.helpEscalated || 0) + '</p>' +
+    table('Absent / Leave', absent, ['Name', 'ID', 'Type']) + table('Late arrivals', late, ['Name', 'ID', 'Arrived', 'Late by']) +
+    table('Early outs', early, ['Name', 'ID', 'Left at']) + table('Break overstays', over, ['Name', 'ID', 'Count', 'Total']) +
+    table('Helper time', help, ['Name', 'ID', 'Sessions', 'Time']) + table('Minimum staff breaches', br, ['Line', 'Window', 'Minimum', 'Lowest']) + '</div>';
+  var text = SHIFT_NAME + ' ' + snap.dateStr + ': present ' + s.presentCount + ', absent ' + s.absentCount + ', late ' + s.lateCount + ', early out ' + s.earlyOutCount + ', overstays ' + s.overstayCount + ', breaches ' + s.breachCount;
+  MailApp.sendEmail({ to: to.join(','), subject: (isTest ? '[TEST] ' : '') + SHIFT_NAME + ' shift report ' + snap.dateStr, body: text, htmlBody: html });
+}
+function pushChat_(text) {
+  try {
+    var url = CHAT_WEBHOOK_URL || props_().getProperty('CHAT_WEBHOOK_URL');
+    if (!url) return;
+    UrlFetchApp.fetch(url, { method: 'post', contentType: 'application/json', payload: JSON.stringify({ text: text }), muteHttpExceptions: true });
+  } catch (e) {}
+}
+
+// Time-driven trigger target (01:00). Safe if called by anyone: it only runs housekeeping.
+function concludeShiftTrigger() {
+  try { withLock_(function () { maintain_(nowMs_()); }); } catch (e) {}
+}
+
+// ============================== SETUP (owner only, argument-free) ==============================
+function assertOwner_() {
+  var a = '', b = '';
+  try { a = Session.getActiveUser().getEmail(); } catch (e) {}
+  try { b = Session.getEffectiveUser().getEmail(); } catch (e) {}
+  // Strict when Google exposes emails: a different visitor is blocked.
+  // If this project cannot read emails at all (old manifest without the userinfo.email scope, or Workspace hides it),
+  // the check cannot tell people apart, so setup is allowed - these functions are idempotent (create tabs / triggers, send the owner a test mail).
+  if (a && b && a !== b) throw new Error('Owner only.');
+}
+function setDashboardPin_(pin) {
+  pin = String(pin == null ? '' : pin).trim();
+  if (!pin || pin === 'CHANGE-ME') throw new Error('Set MY_DASHBOARD_PIN at the top of Code.gs first.');
+  props_().setProperty('DASHBOARD_PIN', pin);
+  props_().deleteProperty('TOKENS');
+}
+function setupShiftTriggers() {
+  assertOwner_();
+  ScriptApp.getProjectTriggers().forEach(function (t) { if (t.getHandlerFunction() === 'concludeShiftTrigger') ScriptApp.deleteTrigger(t); });
+  ScriptApp.newTrigger('concludeShiftTrigger').timeBased().everyDays(1).atHour(SHIFT_END_HOUR).inTimezone(TZ).create();
+}
+function setupEverything() {
+  assertOwner_();
+  if (String(MY_DASHBOARD_PIN || '').trim()) setDashboardPin_(MY_DASHBOARD_PIN);
+  else props_().deleteProperty('DASHBOARD_PIN');             // no PIN configured -> dashboard stays open (no lock screen)
+  setupShiftTriggers();
+  var ss = ss_();                                              // forces the Sheets permission prompt
+  ensureSheet_(ss, 'Daily_Operations_Log', ['Date', 'Shift', 'Day', 'Employee ID', 'Employee Name', 'Attendance', 'Planned Task', 'Final Active Station', 'Role / Movement', 'Break Taken']);
+  ensureSheet_(ss, 'Shift_Archive', ['Saved At', 'Day', 'Total Staff', 'Present', 'Absent', 'Week Off', 'Breaks Taken', 'Helper Sessions', 'Snapshot JSON']);
+  ensureSheet_(ss, 'CC_Performance_Log', ['Date', 'Day', 'Employee ID', 'Employee Name', 'Attendance', 'Late Mins', 'Left Early At', 'Helper Mins', 'Helper Sessions', 'Break Mins', 'Overstay Mins', 'Overstay Count']);
+  try { MailApp.getRemainingDailyQuota(); } catch (e) {}      // forces the Mail permission prompt
+  clearRosterCache_();
+  return 'Setup done: ' + (String(MY_DASHBOARD_PIN || '').trim() ? 'PIN saved' : 'no PIN (dashboard open)') + ', daily trigger at ' + SHIFT_END_HOUR + ':00 (' + TZ + ') created, sheets ready.';
+}
+function clearDashboardPin() {
+  assertOwner_();
+  props_().deleteProperty('DASHBOARD_PIN');
+  props_().deleteProperty('TOKENS');
+  return 'Dashboard PIN removed. Dashboard is now in OPEN mode.';
+}
+function sendTestReport() {
+  assertOwner_();
+  var now = nowMs_();
+  var state = withLock_(function () { return maintain_(now); });
+  var snap = {
+    dateStr: state.dateStr, day: state.dayName,
+    summary: { presentCount: 0, absentCount: 0, weekoffCount: 0, earlyOutCount: 0, lateCount: 0, breaksTakenCount: 0, overstayCount: 0, helperSessions: 0, breachCount: 0 },
+    roster: [], breaches: []
+  };
+  var me = Session.getEffectiveUser().getEmail();
+  var saved = REPORT_EMAILS;
+  REPORT_EMAILS = (saved || []).concat(me ? [me] : []);
+  try { sendReport_(state, snap, true); } finally { REPORT_EMAILS = saved; }
+  return 'Test report sent to: ' + reportRecipients_(state).concat(me).join(', ');
+}
